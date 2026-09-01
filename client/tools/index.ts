@@ -9,6 +9,7 @@ import { browseHierarchyTool } from "./browse-hierarchy.js";
 import { searchDesignTool } from "./search-design.js";
 import { getPropertiesTool } from "./get-properties.js";
 import { setVisibilityTool } from "./set-visibility.js";
+import { setCameraTool } from "./set-camera.js";
 import { setSectionTool } from "./set-section.js";
 import { colorElementsTool } from "./color-elements.js";
 import { measureElementsTool } from "./measure-elements.js";
@@ -20,6 +21,7 @@ export const TOOLS: ToolSpec[] = [
   searchDesignTool,
   getPropertiesTool,
   setVisibilityTool,
+  setCameraTool,
   setSectionTool,
   colorElementsTool,
   measureElementsTool,

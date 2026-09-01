@@ -8,7 +8,7 @@
  * and models load straight away.
  */
 
-import { hexToRgb01, json } from "./utils.js";
+import { hexToRgb01, json, round } from "./utils.js";
 
 export type Axis = "x" | "y" | "z";
 
@@ -258,6 +258,46 @@ export function ancestryOf(dbId: number): HierarchyNode[] {
     current = tree.getNodeParentId(current);
   }
   return chain;
+}
+
+/* ---------------------------------------------------------------------- camera */
+
+export interface CameraState {
+  position: [number, number, number];
+  target: [number, number, number];
+  up: [number, number, number];
+  fov: number;
+}
+
+function vec3(v: [number, number, number]): any {
+  return new THREE.Vector3(v[0], v[1], v[2]);
+}
+
+function readCamera(): CameraState {
+  const nav = requireViewer().navigation;
+  const camera = nav.getCamera();
+  const target = nav.getTarget();
+  const tuple = (p: any): [number, number, number] => [round(p.x), round(p.y), round(p.z)];
+  return { position: tuple(camera.position), target: tuple(target), up: tuple(camera.up), fov: round(camera.fov, 2) };
+}
+
+/**
+ * Jumps the camera to an exact position/orientation — no path animation, unlike
+ * `fitToView`. `up` and `fov` default to whatever the camera already has.
+ */
+export function setCameraView(
+  position: [number, number, number],
+  target: [number, number, number],
+  up?: [number, number, number],
+  fov?: number
+): CameraState {
+  const nav = requireViewer().navigation;
+  const upVec = up ? vec3(up) : nav.getCamera().up.clone();
+
+  nav.setView(vec3(position), vec3(target), upVec);
+  if (fov !== undefined) nav.setVerticalFov(fov, false);
+
+  return readCamera();
 }
 
 /* --------------------------------------------------------------------- theming */

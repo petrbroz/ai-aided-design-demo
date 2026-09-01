@@ -28,6 +28,14 @@ export const numberArray = (description: string) => ({
   description,
 });
 
+export const vec3 = (description: string) => ({
+  type: "array",
+  items: { type: "number" },
+  minItems: 3,
+  maxItems: 3,
+  description: `${description} [x, y, z]`,
+});
+
 /* -------------------------------------------------- state-conditional lifecycle */
 
 function modelContext(): WebMcpModelContext | undefined {
