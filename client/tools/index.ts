@@ -13,6 +13,7 @@ import { setCameraTool } from "./set-camera.js";
 import { setSectionTool } from "./set-section.js";
 import { colorElementsTool } from "./color-elements.js";
 import { measureElementsTool } from "./measure-elements.js";
+import { getBoundingBoxTool } from "./get-bounding-box.js";
 import { captureViewportTool } from "./capture-viewport.js";
 
 export const TOOLS: ToolSpec[] = [
@@ -25,5 +26,6 @@ export const TOOLS: ToolSpec[] = [
   setSectionTool,
   colorElementsTool,
   measureElementsTool,
+  getBoundingBoxTool,
   captureViewportTool,
 ];
