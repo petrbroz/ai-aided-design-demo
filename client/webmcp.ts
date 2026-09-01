@@ -42,7 +42,7 @@ export const vec3 = (description: string) => ({
 /**
  * A validator for the subset of JSON Schema these tools actually use. The host is
  * not required to enforce `inputSchema`, and the arguments are model-generated, so
- * an unchecked `position: [1, 2]` would otherwise reach THREE.Vector3 and leave the
+ * an unchecked `position: [1, 2]` would otherwise reach Math.Vector3 and leave the
  * user with a NaN camera to undo by hand. Failing here costs the agent one retry
  * with a message that says exactly which field was wrong.
  */

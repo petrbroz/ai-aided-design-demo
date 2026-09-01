@@ -8,12 +8,14 @@ const AXES: Axis[] = ["x", "y", "z"];
 
 const corner = (v: any) => [round(v.x), round(v.y), round(v.z)];
 
+// getSize/getCenter allocate their own result vector when the optional target is
+// omitted, so nothing here has to name a vector type.
 function boxSummary(box: any) {
-  const size = box.getSize(new THREE.Vector3());
+  const size = box.getSize();
   return {
     min: corner(box.min),
     max: corner(box.max),
-    center: corner(box.getCenter(new THREE.Vector3())),
+    center: corner(box.getCenter()),
     dimensions: { x: round(size.x), y: round(size.y), z: round(size.z) },
     volume: round(size.x * size.y * size.z, 4),
   };
@@ -34,7 +36,7 @@ function measureElements(dbIdsInput: number[] | undefined, perObject: boolean) {
     .filter(({ box }) => !box.isEmpty());
   if (found.length === 0) throw new Error("No geometry found for the given object(s).");
 
-  const combined = new THREE.Box3();
+  const combined = new Autodesk.Viewing.Math.Box3();
   for (const { box } of found) combined.union(box);
 
   const result: Record<string, unknown> = {
@@ -50,8 +52,8 @@ function measureElements(dbIdsInput: number[] | undefined, perObject: boolean) {
   // without making the caller pick a different tool for it.
   if (found.length === 2) {
     const [a, b] = found;
-    const ca = a.box.getCenter(new THREE.Vector3());
-    const cb = b.box.getCenter(new THREE.Vector3());
+    const ca = a.box.getCenter();
+    const cb = b.box.getCenter();
     result.pair = {
       centerDistance: round(ca.distanceTo(cb)),
       closestGapPerAxis: Object.fromEntries(AXES.map((ax) => [ax, gap(a.box, b.box, ax)])),

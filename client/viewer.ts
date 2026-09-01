@@ -1,11 +1,17 @@
 /**
  * Everything that knows about the APS Viewer: bootstrapping it, loading a model, and
- * the small set of primitives the tools are built from (instance-tree walks, property
+ * the small set of primitives the tools are built from (object-tree walks, property
  * reads, bounding boxes, theming). Nothing here knows that WebMCP exists.
  *
  * The demo bucket holds pre-uploaded, pre-translated SVF2 designs, so there is no
  * manifest polling and no translation UI — the viewer is initialized once for SVF2
  * and models load straight away.
+ *
+ * Written against Viewer SDK v7.126, which the page pins explicitly. Two v7.12x
+ * changes shape the code below: `Model#getInstanceTree` is deprecated in favour of
+ * `Model#getObjectTree` (7.122), and `Autodesk.Viewing.Math` — not the `THREE`
+ * global — is now where the SDK's vector and box types live (7.120/7.122). `THREE`
+ * still resolves to the very same classes, but only as a compatibility shim.
  */
 
 import { cap, hexToRgb01, json, round } from "./utils.js";
@@ -111,6 +117,12 @@ export async function loadModel(urn: string, name: string): Promise<void> {
     viewerRef.removeEventListener(Autodesk.Viewing.GEOMETRY_LOADED_EVENT, onGeometryLoaded!);
   }
 
+  // Geometry on screen does not imply a loaded object tree, and nearly every tool
+  // needs one. getObjectTreeAsync (7.124) is the awaitable form of the same read;
+  // a model that genuinely has no tree is still a usable model, so failure to
+  // produce one is not failure to load.
+  await viewerRef.model.getObjectTreeAsync().catch(() => undefined);
+
   modelName = name;
   themingActive = false;
   currentLegend = null;
@@ -120,7 +132,7 @@ export async function loadModel(urn: string, name: string): Promise<void> {
 
 export function nodeName(dbId: number): string {
   try {
-    return requireViewer().model.getInstanceTree()?.getNodeName(dbId) ?? `#${dbId}`;
+    return requireViewer().model.getObjectTree()?.getNodeName(dbId) ?? `#${dbId}`;
   } catch {
     return `#${dbId}`;
   }
@@ -128,9 +140,9 @@ export function nodeName(dbId: number): string {
 
 export const toNamed = (dbId: number) => ({ dbId, name: nodeName(dbId) });
 
-/** Every leaf dbId in the instance tree — the implicit "whole model" set. */
+/** Every leaf dbId in the object tree — the implicit "whole model" set. */
 export function allLeafDbIds(): number[] {
-  const tree = requireViewer().model.getInstanceTree();
+  const tree = requireViewer().model.getObjectTree();
   if (!tree) return [];
   const leaves: number[] = [];
   const walk = (dbId: number) => {
@@ -201,17 +213,19 @@ export function readCutPlanes(): number[][] {
   return planes.map((p: any) => [round(p.x), round(p.y), round(p.z), round(p.w, 4)]);
 }
 
-/** Union of the world bounds of every fragment under a dbId. */
+/** Union of the world bounds of every geometry instance under a dbId. */
 export function worldBox(dbId: number): any {
   const model = requireViewer().model;
-  const tree = model.getInstanceTree();
+  const tree = model.getObjectTree();
   const frags = model.getFragmentList();
-  const box = new THREE.Box3();
+  const box = new Autodesk.Viewing.Math.Box3();
   if (!tree || !frags) return box;
-  tree.enumNodeFragments(
+  // `enumNodeFragments` still works as an alias, but instances are what the public
+  // ObjectTree API calls them.
+  tree.enumNodeInstances(
     dbId,
     (fragId: number) => {
-      const b = new THREE.Box3();
+      const b = new Autodesk.Viewing.Math.Box3();
       frags.getWorldBounds(fragId, b);
       box.union(b);
     },
@@ -229,9 +243,9 @@ export interface HierarchyNode {
   isLeaf: boolean;
 }
 
-function instanceTree(): any {
-  const tree = requireViewer().model.getInstanceTree();
-  if (!tree) throw new Error("This model has no logical hierarchy (no instance tree).");
+function objectTree(): any {
+  const tree = requireViewer().model.getObjectTree();
+  if (!tree) throw new Error("This model has no logical hierarchy (no object tree).");
   return tree;
 }
 
@@ -243,7 +257,7 @@ function describeNode(tree: any, dbId: number): HierarchyNode {
 
 /** The top of the tree — the implicit starting point when no dbId is given. */
 export function rootDbId(): number {
-  return instanceTree().getRootId();
+  return objectTree().getRootId();
 }
 
 /** Root-to-parent breadcrumb (excludes `dbId` itself), for orientation while browsing. */
@@ -269,7 +283,7 @@ function ancestryOf(tree: any, dbId: number): HierarchyNode[] {
  * the entire grandchild layer only to discard it.
  */
 export function hierarchyStep(dbId: number, maxChildren: number) {
-  const tree = instanceTree();
+  const tree = objectTree();
   const childIds: number[] = [];
   tree.enumNodeChildren(dbId, (child: number) => childIds.push(child));
 
@@ -290,7 +304,7 @@ export interface CameraState {
 }
 
 function vec3(v: [number, number, number]): any {
-  return new THREE.Vector3(v[0], v[1], v[2]);
+  return new Autodesk.Viewing.Math.Vector3(v[0], v[1], v[2]);
 }
 
 /** The single camera reader — shared by get-view-state and set-view-state, so a view
@@ -359,7 +373,7 @@ export function applyTheming(
   const viewerRef = requireViewer();
   const parsed = groups.map(({ label, color, dbIds }) => {
     const [r, g, b] = hexToRgb01(color);
-    return { label, color, dbIds, vec: new THREE.Vector4(r, g, b, 1) };
+    return { label, color, dbIds, vec: new Autodesk.Viewing.Math.Vector4(r, g, b, 1) };
   });
 
   viewerRef.model.clearThemingColors();

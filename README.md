@@ -54,7 +54,7 @@ All eight operate on the currently loaded model. `dbId` is the APS Viewer object
 | Tool | What it does |
 | --- | --- |
 | `get-view-state` | Model name, selection, isolated/hidden sets, cut-plane count, theming flag, camera, unit string. This is the tool that makes deixis work — "what am I looking at", "these two". |
-| `browse-hierarchy` | One step down the instance tree: a node, its breadcrumb back to the root, and its immediate children. For walking the model's logical structure when there is no name to search for. |
+| `browse-hierarchy` | One step down the object tree: a node, its breadcrumb back to the root, and its immediate children. For walking the model's logical structure when there is no name to search for. |
 | `search-design` | Name-substring search via `viewer.search`. Names only, not properties. |
 | `get-properties` | Detail mode (per-object property maps) or aggregate mode (`sum`/`avg`/`min`/`max`/`count`/`group-by`) over any set, up to the whole model. Aggregations return statistics, never rows. |
 | `set-view-state` | The one writer for everything `get-view-state` reads — `visibility`, `section`, and `camera`, singly or together. Visibility is `isolate`/`show`/`hide`/`reset` with an animated fit-to-view so the human sees the agent's focus move; section is one cut plane on a world axis, `offset` normalized 0..1 across the bounding box ("halfway up" needs no world coordinates); camera is an exact eye/target jump. Applied in that order, and passing `camera` suppresses the framing animation so an explicit shot is never overwritten. Returns the resulting view state. |
@@ -158,9 +158,10 @@ serves), and `Buffer` (`Uint8Array.fromBase64` / `toBase64({ alphabet: "base64ur
 The runtime dependency list is empty; `@types/bun` and `typescript` are the only
 devDependencies.
 
-`client/globals.d.ts` holds minimal ambient types for the CDN-loaded `Autodesk`/`THREE`
-globals and for WebMCP; `webmcp-types` is deliberately not a dependency so an experimental
-package cannot break the build.
+`client/globals.d.ts` holds minimal ambient types for the CDN-loaded `Autodesk` global
+and for WebMCP; `webmcp-types` is deliberately not a dependency so an experimental
+package cannot break the build. The Viewer SDK is pinned to v7.126 in `client/index.html`
+rather than floated on `7.*`, so a future SDK release cannot change the app underneath it.
 
 ## Acceptance prompts
 

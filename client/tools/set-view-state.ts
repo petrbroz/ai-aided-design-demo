@@ -77,7 +77,7 @@ function applySection(args: { axis?: unknown; offset?: unknown; flip?: boolean; 
   const flip = args.flip === true;
   const sign = flip ? -1 : 1;
   const normal = AXES.map((a) => (a === axis ? sign : 0));
-  viewer.setCutPlanes([new THREE.Vector4(normal[0], normal[1], normal[2], -sign * pos)]);
+  viewer.setCutPlanes([new Autodesk.Viewing.Math.Vector4(normal[0], normal[1], normal[2], -sign * pos)]);
 
   return { axis, offset: t, flip, worldCoordinate: round(pos, 4) };
 }

@@ -1,11 +1,14 @@
 /**
- * Minimal ambient declarations. The APS Viewer SDK and THREE are loaded from the
- * CDN as globals; `webmcp-types` is not depended on so the build never breaks on
- * an experimental package. Typed loosely on purpose — this is a demo.
+ * Minimal ambient declarations. The APS Viewer SDK is loaded from the CDN as a
+ * global; `webmcp-types` is not depended on so the build never breaks on an
+ * experimental package. Typed loosely on purpose — this is a demo.
+ *
+ * The SDK still publishes a `THREE` global, but as of v7.120/7.122 its math types
+ * are just aliases of `Autodesk.Viewing.Math`, which is what this app uses — so
+ * `THREE` is deliberately not declared here.
  */
 
 declare const Autodesk: any;
-declare const THREE: any;
 
 /** WebMCP — https://github.com/webmachinelearning/webmcp */
 interface WebMcpToolResult {
