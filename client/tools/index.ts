@@ -5,6 +5,7 @@
 
 import type { ToolSpec } from "../webmcp.js";
 import { getViewStateTool } from "./get-view-state.js";
+import { browseHierarchyTool } from "./browse-hierarchy.js";
 import { searchDesignTool } from "./search-design.js";
 import { getPropertiesTool } from "./get-properties.js";
 import { setVisibilityTool } from "./set-visibility.js";
@@ -15,6 +16,7 @@ import { captureViewportTool } from "./capture-viewport.js";
 
 export const TOOLS: ToolSpec[] = [
   getViewStateTool,
+  browseHierarchyTool,
   searchDesignTool,
   getPropertiesTool,
   setVisibilityTool,

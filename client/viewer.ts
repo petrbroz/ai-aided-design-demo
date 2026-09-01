@@ -202,6 +202,64 @@ export function worldBox(dbId: number): any {
   return box;
 }
 
+/* ------------------------------------------------------------------- hierarchy */
+
+export interface HierarchyNode {
+  dbId: number;
+  name: string;
+  childCount: number;
+  isLeaf: boolean;
+}
+
+function instanceTree(): any {
+  const tree = requireViewer().model.getInstanceTree();
+  if (!tree) throw new Error("This model has no logical hierarchy (no instance tree).");
+  return tree;
+}
+
+function describeNode(tree: any, dbId: number): HierarchyNode {
+  let childCount = 0;
+  tree.enumNodeChildren(dbId, () => childCount++);
+  return { dbId, name: tree.getNodeName(dbId) ?? `#${dbId}`, childCount, isLeaf: childCount === 0 };
+}
+
+/** The top of the tree — the implicit starting point when no dbId is given. */
+export function rootDbId(): number {
+  return instanceTree().getRootId();
+}
+
+/** A node, its parent (if any), and its immediate children — one step of a browse. */
+export function hierarchyStep(dbId: number): {
+  node: HierarchyNode;
+  parent: HierarchyNode | null;
+  children: HierarchyNode[];
+} {
+  const tree = instanceTree();
+  const node = describeNode(tree, dbId);
+  const parentId = tree.getNodeParentId(dbId);
+  const parent = parentId && parentId !== dbId ? describeNode(tree, parentId) : null;
+
+  const childIds: number[] = [];
+  tree.enumNodeChildren(dbId, (child: number) => childIds.push(child));
+
+  return { node, parent, children: childIds.map((id) => describeNode(tree, id)) };
+}
+
+/** Root-to-parent breadcrumb (excludes `dbId` itself), for orientation while browsing. */
+export function ancestryOf(dbId: number): HierarchyNode[] {
+  const tree = instanceTree();
+  const chain: HierarchyNode[] = [];
+  const seen = new Set<number>([dbId]);
+
+  let current = tree.getNodeParentId(dbId);
+  while (current && !seen.has(current)) {
+    seen.add(current);
+    chain.unshift(describeNode(tree, current));
+    current = tree.getNodeParentId(current);
+  }
+  return chain;
+}
+
 /* --------------------------------------------------------------------- theming */
 
 /** Repaint from a clean slate so the legend always matches what is on screen. */
