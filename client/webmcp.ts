@@ -1,7 +1,7 @@
 /**
- * The WebMCP layer and nothing else: what a tool looks like, how a tool's result is
- * wrapped in the text envelope WebMCP understands today, and the registration
- * lifecycle. It knows nothing about the viewer.
+ * The WebMCP layer and nothing else: what a tool looks like, how a tool's arguments
+ * are validated, how its result is wrapped in the text envelope WebMCP understands
+ * today, and the registration lifecycle. It knows nothing about the viewer.
  *
  * The tool surface is a function of what is on screen: registration is scoped to an
  * AbortController that is aborted before a different model loads.
@@ -10,8 +10,9 @@
 export type Json = Record<string, unknown>;
 
 /**
- * One agent-facing capability. `run` returns (or throws) plain values; the envelope
- * and the error handling are added once, here.
+ * One agent-facing capability. `run` receives arguments already checked against
+ * `inputSchema`, and returns plain values or throws; the envelope, the argument
+ * checking, the logging and the error handling are added once, here.
  */
 export interface ToolSpec {
   name: string;
@@ -36,6 +37,69 @@ export const vec3 = (description: string) => ({
   description: `${description} [x, y, z]`,
 });
 
+/* ------------------------------------------------------------ input validation */
+
+/**
+ * A validator for the subset of JSON Schema these tools actually use. The host is
+ * not required to enforce `inputSchema`, and the arguments are model-generated, so
+ * an unchecked `position: [1, 2]` would otherwise reach THREE.Vector3 and leave the
+ * user with a NaN camera to undo by hand. Failing here costs the agent one retry
+ * with a message that says exactly which field was wrong.
+ */
+function fail(path: string, message: string): never {
+  throw new Error(`${path || "arguments"}: ${message}`);
+}
+
+function validate(value: unknown, schema: any, path: string): void {
+  if (Array.isArray(schema.enum) && !schema.enum.includes(value)) {
+    fail(path, `expected one of ${schema.enum.join(", ")}, got ${JSON.stringify(value)}`);
+  }
+
+  switch (schema.type) {
+    case "object": {
+      if (typeof value !== "object" || value === null || Array.isArray(value)) {
+        fail(path, "expected an object");
+      }
+      const properties = schema.properties ?? {};
+      const child = (key: string) => (path ? `${path}.${key}` : key);
+
+      for (const key of schema.required ?? []) {
+        if ((value as Json)[key] === undefined) fail(child(key), "is required");
+      }
+      for (const [key, item] of Object.entries(value as Json)) {
+        if (item === undefined) continue;
+        if (!properties[key]) {
+          if (schema.additionalProperties === false) fail(child(key), "is not a known argument");
+          continue;
+        }
+        validate(item, properties[key], child(key));
+      }
+      return;
+    }
+    case "array": {
+      if (!Array.isArray(value)) fail(path, "expected an array");
+      const { minItems, maxItems, items } = schema;
+      if (minItems !== undefined && value.length < minItems) {
+        fail(path, `expected at least ${minItems} item(s), got ${value.length}`);
+      }
+      if (maxItems !== undefined && value.length > maxItems) {
+        fail(path, `expected at most ${maxItems} item(s), got ${value.length}`);
+      }
+      if (items) value.forEach((item, i) => validate(item, items, `${path}[${i}]`));
+      return;
+    }
+    case "number":
+      if (typeof value !== "number" || !Number.isFinite(value)) fail(path, "expected a finite number");
+      return;
+    case "string":
+      if (typeof value !== "string") fail(path, "expected a string");
+      return;
+    case "boolean":
+      if (typeof value !== "boolean") fail(path, "expected a boolean");
+      return;
+  }
+}
+
 /* -------------------------------------------------- state-conditional lifecycle */
 
 function modelContext(): WebMcpModelContext | undefined {
@@ -46,18 +110,30 @@ export function isWebMcpAvailable(): boolean {
   return Boolean(modelContext());
 }
 
-/** Always text, never throw — return `{ error }` so the agent can recover. */
+/**
+ * Always text, never throw. Failures come back as `{ error }` *and* `isError: true`
+ * — without the flag a failed call reads to the agent as a successful one whose
+ * payload happens to contain the word "error".
+ */
 function descriptor({ run, ...spec }: ToolSpec): WebMcpToolDescriptor {
-  const text = (result: unknown): WebMcpToolResult => ({
+  const text = (result: unknown, isError = false): WebMcpToolResult => ({
     content: [{ type: "text", text: JSON.stringify(result) }],
+    isError,
   });
+
   return {
     ...spec,
     execute: async (args: any) => {
+      const input = args ?? {};
       try {
-        return text(await run(args ?? {}));
+        validate(input, spec.inputSchema, "");
+        const result = await run(input);
+        console.log(`${spec.name}`, input);
+        return text(result);
       } catch (err) {
-        return text({ error: (err as Error).message ?? String(err) });
+        const message = (err as Error)?.message ?? String(err);
+        console.warn(`${spec.name} failed — ${message}`, input);
+        return text({ error: message }, true);
       }
     },
   };

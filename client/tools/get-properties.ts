@@ -1,7 +1,7 @@
 import type { ToolSpec } from "../webmcp.js";
 import { numberArray } from "../webmcp.js";
 import { bulkProperties, matchProperty, nodeName, resolveDbIds } from "../viewer.js";
-import { cap, isBlank, MAX_ITEMS, mostCommon, round, toNumber } from "../utils.js";
+import { cap, distinct, groupBy, isBlank, round, toNumber } from "../utils.js";
 
 const DEFAULT_PROPERTY_NAMES = [
   "Name",
@@ -27,43 +27,47 @@ interface GetPropertiesInput {
 
 async function getProperties(input: GetPropertiesInput) {
   const { dbIds, source } = resolveDbIds(input.dbIds);
-  if (dbIds.length === 0) return { error: "No objects to inspect." };
+  if (input.aggregate) return aggregateProperties(dbIds, source, input.aggregate);
 
-  if (input.aggregate) {
-    return aggregateProperties(dbIds, source, input.aggregate);
-  }
+  const requested = input.propertyNames ?? DEFAULT_PROPERTY_NAMES;
+  const page = cap(dbIds);
+  const results = await bulkProperties(page.items, requested);
+  const byDbId = new Map(results.map((r) => [r.dbId, r]));
 
-  const propFilter = input.propertyNames ?? DEFAULT_PROPERTY_NAMES;
-  const subject = dbIds.slice(0, MAX_ITEMS);
-  const results = await bulkProperties(subject, propFilter);
+  // Built from the requested ids, not from the results, so an object the property
+  // database returned nothing for still shows up (with no properties) instead of
+  // silently shortening the list and reading as truncation.
+  const items = page.items.map((dbId) => {
+    const result = byDbId.get(dbId);
+    return {
+      dbId,
+      name: result?.name ?? nodeName(dbId),
+      properties: (result?.properties ?? []).map((p) => ({
+        name: p.displayName ?? p.attributeName ?? "(unnamed)",
+        displayValue: p.displayValue ?? null,
+        units: p.units ?? null,
+      })),
+    };
+  });
 
-  const items = results.map((r) => ({
-    dbId: r.dbId,
-    name: r.name ?? nodeName(r.dbId),
-    properties: r.properties.map((p) => ({
-      name: p.displayName ?? p.attributeName ?? "(unnamed)",
-      displayValue: p.displayValue ?? null,
-      units: p.units ?? null,
-    })),
-  }));
+  // propFilter is matched case-sensitively by the property database, so a name that
+  // is merely miscased comes back as silence. Say which names found nothing.
+  const seen = new Set(items.flatMap((i) => i.properties.map((p) => p.name.toLowerCase())));
+  const unmatchedProperties = requested.filter((name) => !seen.has(name.trim().toLowerCase()));
 
   return {
-    mode: dbIds.length <= 20 ? "detail" : "detail-capped",
     dbIdSource: source,
-    propertyFilter: propFilter,
-    total: dbIds.length,
-    returned: items.length,
-    truncated: dbIds.length > items.length,
-    items,
+    propertyFilter: requested,
+    unmatchedProperties,
+    objects: { ...page, items },
   };
 }
 
 async function aggregateProperties(
   dbIds: number[],
   source: string,
-  aggregate: { property: string; op: AggregateOp }
+  { property, op }: { property: string; op: AggregateOp }
 ) {
-  const { property, op } = aggregate;
   const results = await bulkProperties(dbIds, [property]);
 
   const entries: Array<{ raw: unknown; num: number | null }> = [];
@@ -79,33 +83,30 @@ async function aggregateProperties(
     property,
     op,
     dbIdSource: source,
-    objects: dbIds.length,
+    objectCount: dbIds.length,
     withProperty: entries.length,
     missingProperty: dbIds.length - entries.length,
-    units: mostCommon(unitStrings),
+    // Every distinct unit seen, not the most common one: a sum over mixed mm and ft
+    // rows is meaningless, and labelling it with whichever unit won a vote hides that.
+    units: distinct(unitStrings),
   };
 
   if (op === "group-by") {
-    const counts = new Map<string, number>();
-    for (const e of entries) {
-      const key = String(e.raw);
-      counts.set(key, (counts.get(key) ?? 0) + 1);
-    }
-    const sorted = [...counts.entries()].sort((a, b) => b[1] - a[1]);
+    const groups = groupBy(entries, (e) => String(e.raw));
     return {
       ...base,
-      distinctValues: sorted.length,
-      ...cap(sorted, ([value, count]) => ({ value, count })),
+      distinctValues: groups.length,
+      values: cap(groups, ([value, rows]) => ({ value, count: rows.length })),
     };
   }
 
-  const numbers = entries.map((e) => e.num).filter((n): n is number => n !== null);
+  const numbers = entries.flatMap((e) => (e.num === null ? [] : [e.num]));
   if (numbers.length === 0) {
-    return {
-      ...base,
-      error: `No numeric values found for property "${property}". Try op "group-by".`,
-    };
+    throw new Error(
+      `No numeric values found for property "${property}". Try op "group-by".`
+    );
   }
+
   const sum = numbers.reduce((a, b) => a + b, 0);
   const value =
     op === "sum" ? sum
@@ -124,15 +125,15 @@ async function aggregateProperties(
 export const getPropertiesTool: ToolSpec = {
   name: "get-properties",
   description:
-    "Inspect or aggregate BIM/CAD properties. Detail mode returns per-object property " +
-    "maps (with units where the property database provides them). Aggregate mode " +
-    "returns summary statistics only — never raw rows — so it scales to the whole " +
-    "model: op 'sum' | 'avg' | 'min' | 'max' | 'group-by'. Every aggregate response " +
-    "also reports `withProperty` and `missingProperty` counts. 'group-by' returns " +
-    "value counts, which is how to answer questions like 'how many doors have no " +
-    "fire rating set' (missingProperty). If dbIds is omitted, the current selection " +
-    "is used, and if nothing is selected, the whole model. Numeric aggregations parse " +
-    "the property's display value, so check the reported `units` before quoting a number.",
+    "Read or aggregate BIM/CAD properties. Without `aggregate`, returns per-object " +
+    "values. With `aggregate`, returns statistics only — never raw rows — so it " +
+    "scales to the whole model: 'sum' | 'avg' | 'min' | 'max' | 'group-by'. " +
+    "'group-by' plus the `missingProperty` count answers questions like 'how many " +
+    "doors have no fire rating set'. Numbers are parsed from display values, and " +
+    "values that are not plainly numeric are counted in `nonNumericValues` rather " +
+    "than guessed at — check `units` before quoting a number, and treat more than " +
+    "one entry there as mixed units. If dbIds is omitted, the current selection is " +
+    "used, and if nothing is selected, the whole model.",
   inputSchema: {
     type: "object",
     properties: {

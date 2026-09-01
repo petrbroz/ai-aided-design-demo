@@ -4,27 +4,27 @@ import { cap, clamp, MAX_ITEMS } from "../utils.js";
 
 async function searchDesign(query: string, maxResults: number) {
   const viewer = requireViewer();
-  const limit = clamp(maxResults, 1, MAX_ITEMS);
 
-  const dbIds = await new Promise<number[]>((resolve) => {
+  // Rejecting rather than resolving `[]` — "the search failed" and "nothing matched"
+  // must not look identical to the agent.
+  const dbIds = await new Promise<number[]>((resolve, reject) => {
     viewer.search(
       query,
       (ids: number[]) => resolve(ids ?? []),
-      () => resolve([]),
+      (err: unknown) => reject(new Error(`Search failed: ${String(err)}`)),
       ["name"]
     );
   });
 
-  return { query, ...cap(dbIds, toNamed, limit) };
+  return { query, results: cap(dbIds, toNamed, clamp(maxResults, 1, MAX_ITEMS)) };
 }
 
 export const searchDesignTool: ToolSpec = {
   name: "search-design",
   description:
-    "Find objects in the loaded design by name substring (e.g. 'door', 'pipe', " +
-    "'Basic Wall'). Matches object names only — not properties or categories; use " +
-    "get-properties with a group-by aggregation to explore by category. Returns " +
-    `{ total, returned, items: [{ dbId, name }] }, capped at ${MAX_ITEMS} items.`,
+    "Find objects whose *name* contains a substring (e.g. 'door', 'pipe', 'Basic " +
+    "Wall'). Names only — to search by category or any other property, use " +
+    "get-properties with a group-by aggregation.",
   inputSchema: {
     type: "object",
     properties: {

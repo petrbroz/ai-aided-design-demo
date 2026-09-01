@@ -8,12 +8,9 @@ import { getViewStateTool } from "./get-view-state.js";
 import { browseHierarchyTool } from "./browse-hierarchy.js";
 import { searchDesignTool } from "./search-design.js";
 import { getPropertiesTool } from "./get-properties.js";
-import { setVisibilityTool } from "./set-visibility.js";
-import { setCameraTool } from "./set-camera.js";
-import { setSectionTool } from "./set-section.js";
-import { colorElementsTool } from "./color-elements.js";
 import { measureElementsTool } from "./measure-elements.js";
-import { getBoundingBoxTool } from "./get-bounding-box.js";
+import { setViewStateTool } from "./set-view-state.js";
+import { colorElementsTool } from "./color-elements.js";
 import { captureViewportTool } from "./capture-viewport.js";
 
 export const TOOLS: ToolSpec[] = [
@@ -21,11 +18,8 @@ export const TOOLS: ToolSpec[] = [
   browseHierarchyTool,
   searchDesignTool,
   getPropertiesTool,
-  setVisibilityTool,
-  setCameraTool,
-  setSectionTool,
-  colorElementsTool,
   measureElementsTool,
-  getBoundingBoxTool,
+  setViewStateTool,
+  colorElementsTool,
   captureViewportTool,
 ];

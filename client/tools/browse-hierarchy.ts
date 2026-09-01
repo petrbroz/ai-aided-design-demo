@@ -1,35 +1,16 @@
 import type { ToolSpec } from "../webmcp.js";
-import { ancestryOf, hierarchyStep, rootDbId } from "../viewer.js";
-import { cap, clamp, MAX_ITEMS } from "../utils.js";
-
-function browseHierarchy(dbId: number | undefined, maxChildren: number) {
-  const id = dbId ?? rootDbId();
-  const limit = clamp(maxChildren, 1, MAX_ITEMS);
-
-  const { node, parent, children } = hierarchyStep(id);
-
-  return {
-    dbId: node.dbId,
-    name: node.name,
-    isLeaf: node.isLeaf,
-    parent,
-    ancestors: ancestryOf(id),
-    children: cap(children, undefined, limit),
-  };
-}
+import { hierarchyStep, rootDbId } from "../viewer.js";
+import { clamp, MAX_ITEMS } from "../utils.js";
 
 export const browseHierarchyTool: ToolSpec = {
   name: "browse-hierarchy",
   description:
-    "Walk the design's logical hierarchy (the InstanceTree) one level at a time — " +
-    "the same tree the model browser shows, e.g. model > levels > categories > " +
-    "families > instances. Omit dbId to start at the model root. Returns the node's " +
-    "name, its parent, the breadcrumb of ancestors back to the root, and its " +
-    "immediate children, each flagged `isLeaf` so the agent knows whether it can " +
-    "descend further. Call again with a child's dbId to go deeper, or the parent's " +
-    `dbId to go back up. Children are capped at ${MAX_ITEMS} by default; use ` +
-    "search-design or get-properties (group-by) instead of deep recursive browsing " +
-    "to find specific objects across a large model.",
+    "Walk the design's logical hierarchy one level at a time — the tree the model " +
+    "browser shows, e.g. model > level > category > family > instance. Returns the " +
+    "node, its breadcrumb of `ancestors` back to the root, and its immediate " +
+    "`children`, each flagged `isLeaf`. Recurse with a child's dbId, or the last " +
+    "ancestor's to go back up. To find specific objects across a large model, use " +
+    "search-design or get-properties group-by instead of browsing recursively.",
   inputSchema: {
     type: "object",
     properties: {
@@ -38,5 +19,6 @@ export const browseHierarchyTool: ToolSpec = {
     },
     additionalProperties: false,
   },
-  run: (args) => browseHierarchy(args.dbId, args.maxChildren ?? MAX_ITEMS),
+  run: (args) =>
+    hierarchyStep(args.dbId ?? rootDbId(), clamp(args.maxChildren ?? MAX_ITEMS, 1, MAX_ITEMS)),
 };

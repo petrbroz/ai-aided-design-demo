@@ -8,7 +8,7 @@
  * and models load straight away.
  */
 
-import { hexToRgb01, json, round } from "./utils.js";
+import { cap, hexToRgb01, json, round } from "./utils.js";
 
 export type Axis = "x" | "y" | "z";
 
@@ -145,9 +145,19 @@ export function allLeafDbIds(): number[] {
   return leaves;
 }
 
-/** dbIds to operate on: explicit → current selection → whole model. */
+/**
+ * dbIds to operate on: explicit → current selection → whole model.
+ *
+ * An explicitly empty array is *not* the same as an omitted one. The common agent
+ * flow is search-design → no hits → pass the empty result straight on; falling back
+ * to the whole model there would answer a question about nothing with statistics
+ * about everything.
+ */
 export function resolveDbIds(dbIds?: number[]): { dbIds: number[]; source: string } {
-  if (dbIds && dbIds.length > 0) return { dbIds, source: "argument" };
+  if (dbIds) {
+    if (dbIds.length === 0) throw new Error("`dbIds` was an empty list — nothing to act on.");
+    return { dbIds, source: "argument" };
+  }
   const selection = requireViewer().getSelection();
   if (selection.length > 0) return { dbIds: selection, source: "selection" };
   return { dbIds: allLeafDbIds(), source: "whole-model" };
@@ -183,6 +193,12 @@ export function units(): string {
   } catch {
     return "unknown";
   }
+}
+
+/** Active section planes as [nx, ny, nz, d], the same shape set-view-state takes. */
+export function readCutPlanes(): number[][] {
+  const planes = requireViewer().getCutPlanes() ?? [];
+  return planes.map((p: any) => [round(p.x), round(p.y), round(p.z), round(p.w, 4)]);
 }
 
 /** Union of the world bounds of every fragment under a dbId. */
@@ -230,26 +246,8 @@ export function rootDbId(): number {
   return instanceTree().getRootId();
 }
 
-/** A node, its parent (if any), and its immediate children — one step of a browse. */
-export function hierarchyStep(dbId: number): {
-  node: HierarchyNode;
-  parent: HierarchyNode | null;
-  children: HierarchyNode[];
-} {
-  const tree = instanceTree();
-  const node = describeNode(tree, dbId);
-  const parentId = tree.getNodeParentId(dbId);
-  const parent = parentId && parentId !== dbId ? describeNode(tree, parentId) : null;
-
-  const childIds: number[] = [];
-  tree.enumNodeChildren(dbId, (child: number) => childIds.push(child));
-
-  return { node, parent, children: childIds.map((id) => describeNode(tree, id)) };
-}
-
 /** Root-to-parent breadcrumb (excludes `dbId` itself), for orientation while browsing. */
-export function ancestryOf(dbId: number): HierarchyNode[] {
-  const tree = instanceTree();
+function ancestryOf(tree: any, dbId: number): HierarchyNode[] {
   const chain: HierarchyNode[] = [];
   const seen = new Set<number>([dbId]);
 
@@ -260,6 +258,26 @@ export function ancestryOf(dbId: number): HierarchyNode[] {
     current = tree.getNodeParentId(current);
   }
   return chain;
+}
+
+/**
+ * A node, its breadcrumb back to the root, and its immediate children — one step of
+ * a browse. The parent is just the last ancestor, so it is not returned twice.
+ *
+ * `maxChildren` is applied *before* describeNode runs, because describeNode
+ * enumerates each child's own children to count them; capping afterwards would walk
+ * the entire grandchild layer only to discard it.
+ */
+export function hierarchyStep(dbId: number, maxChildren: number) {
+  const tree = instanceTree();
+  const childIds: number[] = [];
+  tree.enumNodeChildren(dbId, (child: number) => childIds.push(child));
+
+  return {
+    node: describeNode(tree, dbId),
+    ancestors: ancestryOf(tree, dbId),
+    children: cap(childIds, (id) => describeNode(tree, id), maxChildren),
+  };
 }
 
 /* ---------------------------------------------------------------------- camera */
@@ -275,7 +293,9 @@ function vec3(v: [number, number, number]): any {
   return new THREE.Vector3(v[0], v[1], v[2]);
 }
 
-function readCamera(): CameraState {
+/** The single camera reader — shared by get-view-state and set-view-state, so a view
+ * the agent reads back is expressed in exactly the fields it can write. */
+export function readCamera(): CameraState {
   const nav = requireViewer().navigation;
   const camera = nav.getCamera();
   const target = nav.getTarget();
@@ -302,26 +322,55 @@ export function setCameraView(
   return readCamera();
 }
 
+/* ------------------------------------------------------------------ view state */
+
+/**
+ * Everything the agent can observe about the current view, and — bar the selection —
+ * everything set-view-state can write. Lives here rather than in the tool so the
+ * reader and the writer cannot drift apart: set-view-state returns this too.
+ */
+export function readViewState() {
+  const viewerRef = requireViewer();
+  return {
+    model: getModelName(),
+    units: units(),
+    selection: cap(viewerRef.getSelection() ?? [], toNamed),
+    isolated: cap<number>(viewerRef.getIsolatedNodes() ?? []),
+    hidden: cap<number>(viewerRef.getHiddenNodes() ?? []),
+    cutPlanes: readCutPlanes(),
+    themingActive: isThemingActive(),
+    legend: getLegend(),
+    camera: readCamera(),
+  };
+}
+
 /* --------------------------------------------------------------------- theming */
 
-/** Repaint from a clean slate so the legend always matches what is on screen. */
+/**
+ * Repaint from a clean slate so the legend always matches what is on screen.
+ *
+ * Every colour is parsed before anything is painted: parsing mid-paint would let a
+ * bad colour in the third group throw after two are already on screen, leaving the
+ * viewport themed while `themingActive`/`currentLegend` still say it is not.
+ */
 export function applyTheming(
   groups: Array<{ label: string; color: string; dbIds: number[] }>
 ): LegendEntry[] {
   const viewerRef = requireViewer();
-  viewerRef.model.clearThemingColors();
-
-  const legend: LegendEntry[] = groups.map(({ label, color, dbIds }) => {
+  const parsed = groups.map(({ label, color, dbIds }) => {
     const [r, g, b] = hexToRgb01(color);
-    const vec = new THREE.Vector4(r, g, b, 1);
-    for (const dbId of dbIds) viewerRef.model.setThemingColor(dbId, vec, true);
-    return { label, color, count: dbIds.length };
+    return { label, color, dbIds, vec: new THREE.Vector4(r, g, b, 1) };
   });
 
+  viewerRef.model.clearThemingColors();
+  for (const { dbIds, vec } of parsed) {
+    for (const dbId of dbIds) viewerRef.model.setThemingColor(dbId, vec, true);
+  }
+
   themingActive = true;
-  currentLegend = legend;
+  currentLegend = parsed.map(({ label, color, dbIds }) => ({ label, color, count: dbIds.length }));
   viewerRef.impl.invalidate(true, true, true);
-  return legend;
+  return currentLegend;
 }
 
 export function clearTheming(): void {

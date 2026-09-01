@@ -43,6 +43,13 @@ async function listModels() {
   }));
 }
 
+/**
+ * Screenshots live in memory only, and only for as long as the agent plausibly needs
+ * to fetch one. The URLs are unauthenticated, so an unbounded cache would keep every
+ * frame of customer geometry ever captured readable for the process lifetime; Map
+ * preserves insertion order, so evicting the oldest key is enough.
+ */
+const MAX_SCREENSHOTS = 32;
 const screenshotCache = new Map<string, Uint8Array<ArrayBuffer>>();
 
 function saveScreenshot(png: string): string {
@@ -50,6 +57,9 @@ function saveScreenshot(png: string): string {
   const bytes = Uint8Array.fromBase64(base64);
   const id = crypto.randomUUID();
   screenshotCache.set(id, bytes);
+  while (screenshotCache.size > MAX_SCREENSHOTS) {
+    screenshotCache.delete(screenshotCache.keys().next().value!);
+  }
   return id;
 }
 

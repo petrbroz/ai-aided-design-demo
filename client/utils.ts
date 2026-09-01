@@ -1,13 +1,27 @@
 /**
  * Pure helpers with no knowledge of the viewer or of WebMCP: list capping, number
- * coercion, colour parsing, and the one-line JSON fetch used against our own API.
+ * coercion, grouping, colour parsing, and the one-line JSON fetch used against our
+ * own API.
  */
 
 /** Hard cap on any list a caller may receive. Token budget is a design constraint. */
 export const MAX_ITEMS = 50;
 
-/** Truncate a list to `limit` (default MAX_ITEMS), always reporting the true total. */
-export function cap<T, R = T>(items: T[], map?: (item: T) => R, limit = MAX_ITEMS) {
+export interface Capped<T> {
+  total: number;
+  returned: number;
+  truncated: boolean;
+  items: T[];
+}
+
+/**
+ * Truncate a list to `limit` (default MAX_ITEMS), always reporting the true total.
+ * `map` runs only over the kept slice, so it is safe for it to be expensive.
+ *
+ * Every list a tool returns is wrapped in this shape, under a named key, so an agent
+ * only ever has to learn one convention.
+ */
+export function cap<T, R = T>(items: T[], map?: (item: T) => R, limit = MAX_ITEMS): Capped<R> {
   const kept = items.slice(0, limit);
   return {
     total: items.length,
@@ -17,16 +31,21 @@ export function cap<T, R = T>(items: T[], map?: (item: T) => R, limit = MAX_ITEM
   };
 }
 
+/**
+ * A number, or null. Deliberately strict: the *whole* string has to be a number
+ * (optionally followed by a unit suffix), so compound formats like Revit's
+ * `8' - 6"` are rejected rather than silently truncated to their first run of
+ * digits and quietly folded into a sum.
+ */
+const NUMERIC = /^(-?\d+(?:\.\d+)?(?:[eE][-+]?\d+)?)[a-zA-Z°²³^/.\s]*$/;
+
 export function toNumber(value: unknown): number | null {
-  if (typeof value === "number" && Number.isFinite(value)) return value;
-  if (typeof value === "string") {
-    const m = value.replace(/,/g, "").match(/-?\d+(\.\d+)?([eE][-+]?\d+)?/);
-    if (m) {
-      const n = Number(m[0]);
-      return Number.isFinite(n) ? n : null;
-    }
-  }
-  return null;
+  if (typeof value === "number") return Number.isFinite(value) ? value : null;
+  if (typeof value !== "string") return null;
+  const m = NUMERIC.exec(value.trim().replace(/,/g, ""));
+  if (!m) return null;
+  const n = Number(m[1]);
+  return Number.isFinite(n) ? n : null;
 }
 
 export function isBlank(value: unknown): boolean {
@@ -49,11 +68,29 @@ export function hexToRgb01(hex: string): [number, number, number] {
   return [((int >> 16) & 255) / 255, ((int >> 8) & 255) / 255, (int & 255) / 255];
 }
 
-export function mostCommon(values: string[]): string | null {
-  if (values.length === 0) return null;
-  const counts = new Map<string, number>();
-  for (const value of values) counts.set(value, (counts.get(value) ?? 0) + 1);
-  return [...counts.entries()].sort((a, b) => b[1] - a[1])[0][0];
+/** Bucket items by a string key, largest bucket first. The one grouping primitive. */
+export function groupBy<T>(items: T[], key: (item: T) => string): Array<[string, T[]]> {
+  const buckets = new Map<string, T[]>();
+  for (const item of items) {
+    const k = key(item);
+    const bucket = buckets.get(k);
+    if (bucket) bucket.push(item);
+    else buckets.set(k, [item]);
+  }
+  return [...buckets.entries()].sort((a, b) => b[1].length - a[1].length);
+}
+
+/** Distinct strings, most frequent first. */
+export function distinct(values: string[]): string[] {
+  return groupBy(values, (v) => v).map(([value]) => value);
+}
+
+/** Reject a promise that never settles, rather than hanging the agent's tool call. */
+export function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(message)), ms);
+    promise.then(resolve, reject).finally(() => clearTimeout(timer));
+  });
 }
 
 export async function json<T>(url: string): Promise<T> {

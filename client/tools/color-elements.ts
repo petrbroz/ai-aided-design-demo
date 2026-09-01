@@ -1,6 +1,6 @@
 import type { ToolSpec } from "../webmcp.js";
 import { numberArray } from "../webmcp.js";
-import type { LegendEntry } from "../viewer.js";
+import type { BulkResult, LegendEntry } from "../viewer.js";
 import {
   allLeafDbIds,
   applyTheming,
@@ -8,7 +8,7 @@ import {
   clearTheming,
   matchProperty,
 } from "../viewer.js";
-import { isBlank } from "../utils.js";
+import { groupBy, isBlank } from "../utils.js";
 
 /** Max distinct buckets when colouring by property; the rest roll into "other". */
 const MAX_COLOR_BUCKETS = 12;
@@ -32,21 +32,14 @@ interface ColorElementsInput {
 
 const totalColored = (legend: LegendEntry[]) => legend.reduce((sum, e) => sum + e.count, 0);
 
-function paint(groups: Array<{ label: string; color: string; dbIds: number[] }>) {
-  const legend = applyTheming(groups);
-  console.log(`color-elements: ${legend.length} groups`);
-  return legend;
-}
-
 async function colorElements(input: ColorElementsInput) {
   if (input.clear) {
     clearTheming();
-    console.log("color-elements: cleared");
     return { cleared: true, legend: [], colored: 0, uncolored: 0 };
   }
 
   if (input.groups && input.groups.length > 0) {
-    const legend = paint(
+    const legend = applyTheming(
       input.groups.map((group, i) => ({
         label: group.label ?? `Group ${i + 1}`,
         color: group.color,
@@ -57,44 +50,39 @@ async function colorElements(input: ColorElementsInput) {
   }
 
   const property = input.byProperty;
-  if (!property) {
-    return { error: "Provide either `groups`, `byProperty`, or `clear: true`." };
-  }
+  if (!property) throw new Error("Provide either `groups`, `byProperty`, or `clear: true`.");
 
   const dbIds = allLeafDbIds(); // the description promises every object, so ignore selection
   const results = await bulkProperties(dbIds, [property]);
 
-  const buckets = new Map<string, number[]>();
-  let uncolored = dbIds.length - results.length;
-  for (const r of results) {
+  const valueOf = (r: BulkResult) => {
     const prop = matchProperty(r.properties, property);
-    if (!prop || isBlank(prop.displayValue)) {
-      uncolored++;
-      continue;
-    }
-    const key = String(prop.displayValue);
-    const list = buckets.get(key);
-    if (list) list.push(r.dbId);
-    else buckets.set(key, [r.dbId]);
-  }
+    return !prop || isBlank(prop.displayValue) ? null : String(prop.displayValue);
+  };
+  const withValue = results.filter((r) => valueOf(r) !== null);
+  const uncolored = dbIds.length - withValue.length;
 
-  if (buckets.size === 0) {
-    return { error: `No objects carry property "${property}".` };
-  }
+  const sorted = groupBy(withValue, (r) => valueOf(r)!);
+  if (sorted.length === 0) throw new Error(`No objects carry property "${property}".`);
 
-  const sorted = [...buckets.entries()].sort((a, b) => b[1].length - a[1].length);
-  const head = sorted.slice(0, MAX_COLOR_BUCKETS - 1);
-  const tail = sorted.slice(MAX_COLOR_BUCKETS - 1);
-  const groups = head.map(([label, ids]) => ({ label, dbIds: ids }));
-  if (tail.length > 0) {
-    groups.push({
-      label: `other (${tail.length} values)`,
-      dbIds: tail.flatMap(([, ids]) => ids),
-    });
-  }
+  // Only collapse into "other" when there is actually something to collapse — slicing
+  // unconditionally would push a single value into "other" at exactly the limit.
+  const buckets =
+    sorted.length <= MAX_COLOR_BUCKETS
+      ? sorted.map(([label, rows]) => ({ label, dbIds: rows.map((r) => r.dbId) }))
+      : [
+          ...sorted.slice(0, MAX_COLOR_BUCKETS - 1).map(([label, rows]) => ({
+            label,
+            dbIds: rows.map((r) => r.dbId),
+          })),
+          {
+            label: `other (${sorted.length - MAX_COLOR_BUCKETS + 1} values)`,
+            dbIds: sorted.slice(MAX_COLOR_BUCKETS - 1).flatMap(([, rows]) => rows.map((r) => r.dbId)),
+          },
+        ];
 
-  const legend = paint(
-    groups.map((group, i) => ({ ...group, color: PALETTE[i % PALETTE.length] }))
+  const legend = applyTheming(
+    buckets.map((bucket, i) => ({ ...bucket, color: PALETTE[i % PALETTE.length] }))
   );
 
   return {
@@ -111,11 +99,11 @@ async function colorElements(input: ColorElementsInput) {
 export const colorElementsTool: ToolSpec = {
   name: "color-elements",
   description:
-    "Colour-code the model in the viewport and return a matching legend. " +
-    "Either pass explicit `groups` of dbIds with #RRGGBB colours, or `byProperty` to " +
-    `bucket every object by a property's distinct values (max ${MAX_COLOR_BUCKETS} buckets, the rest ` +
-    "roll into 'other'). `clear: true` removes all theming. Returns the legend with " +
-    "per-bucket counts so the colours on screen can be described in words.",
+    "Colour-code the model in the viewport and return a matching legend. Pass either " +
+    "explicit `groups` of dbIds with #RRGGBB colours, or `byProperty` to bucket every " +
+    `object by a property's distinct values (max ${MAX_COLOR_BUCKETS}, the rest roll into 'other'). ` +
+    "`clear: true` removes all theming. The legend's per-bucket counts are how the " +
+    "colours on screen get described in words.",
   inputSchema: {
     type: "object",
     properties: {

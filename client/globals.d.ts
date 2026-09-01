@@ -10,6 +10,7 @@ declare const THREE: any;
 /** WebMCP — https://github.com/webmachinelearning/webmcp */
 interface WebMcpToolResult {
   content: Array<{ type: "text"; text: string }>;
+  isError?: boolean;
 }
 
 interface WebMcpToolDescriptor {
