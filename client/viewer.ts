@@ -251,7 +251,9 @@ function objectTree(): any {
 
 function describeNode(tree: any, dbId: number): HierarchyNode {
   let childCount = 0;
-  tree.enumNodeChildren(dbId, () => childCount++);
+  tree.enumNodeChildren(dbId, () => {
+    childCount++;
+  });
   return { dbId, name: tree.getNodeName(dbId) ?? `#${dbId}`, childCount, isLeaf: childCount === 0 };
 }
 
@@ -285,7 +287,9 @@ function ancestryOf(tree: any, dbId: number): HierarchyNode[] {
 export function hierarchyStep(dbId: number, maxChildren: number) {
   const tree = objectTree();
   const childIds: number[] = [];
-  tree.enumNodeChildren(dbId, (child: number) => childIds.push(child));
+  tree.enumNodeChildren(dbId, (child: number) => {
+    childIds.push(child);
+  });
 
   return {
     node: describeNode(tree, dbId),
