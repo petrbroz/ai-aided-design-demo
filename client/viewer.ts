@@ -74,7 +74,9 @@ export async function initViewer(host: HTMLElement): Promise<void> {
   });
 
   viewer = new Autodesk.Viewing.GuiViewer3D(host, {
-    extensions: ["Autodesk.DefaultTools.NavTools"],
+    // DocumentBrowser adds its own toolbar button for switching between the
+    // models/views the loaded Document exposes (e.g. 2D sheets, 3D views).
+    extensions: ["Autodesk.DefaultTools.NavTools", "Autodesk.DocumentBrowser"],
   });
   if (viewer.start() !== 0) throw new Error("Failed to start the APS Viewer.");
 }
