@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>AI-Aided Design — WebMCP + APS Viewer</title>
+
+    <link rel="stylesheet" href="https://developer.api.autodesk.com/modelderivative/v2/viewers/7.*/style.min.css" />
+    <script src="https://developer.api.autodesk.com/modelderivative/v2/viewers/7.*/viewer3D.min.js"></script>
+
+    <style>
+      * { box-sizing: border-box; }
+      html, body { margin: 0; height: 100%; overflow: hidden; }
+      #viewer { position: absolute; inset: 0; }
+      #designs {
+        position: absolute; top: 10px; left: 10px; z-index: 10;
+        max-width: 320px; padding: 6px 8px; border-radius: 4px;
+        border: 1px solid rgba(231, 233, 236, 0.25);
+        background: rgba(16, 18, 21, 0.85); color: #e7e9ec; font: inherit;
+      }
+      #designs:disabled { opacity: 0.5; }
+      #designs[hidden] { display: none; }
+    </style>
+  </head>
+  <body>
+    <div id="viewer"></div>
+    <select id="designs" hidden aria-label="Design"></select>
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>
