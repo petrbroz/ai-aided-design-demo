@@ -137,13 +137,14 @@ function setChip(chip: HTMLSpanElement, text: string | null): void {
 function viewpointLabel(viewpoint: Viewpoint): string {
   const count = (items: unknown[], label: string) =>
     items.length > 0 ? `${items.length} ${label}` : null;
-  const { camera, selection, cutPlanes, isolated, hidden } = viewpoint;
+  const { camera, selection, cutPlanes, isolated, hidden, theming } = viewpoint;
   return [
     `eye ${camera.position.map((n) => round(n, 1)).join(", ")}`,
     count(selection, "selected"),
     count(cutPlanes, cutPlanes.length === 1 ? "cut plane" : "cut planes"),
     count(isolated, "isolated"),
     count(hidden, "hidden"),
+    count(theming ?? [], theming?.length === 1 ? "colour" : "colours"),
   ]
     .filter(Boolean)
     .join(" · ");

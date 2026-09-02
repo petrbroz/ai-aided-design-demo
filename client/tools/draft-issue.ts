@@ -85,7 +85,7 @@ export const draftIssueTool: ToolSpec = {
     "the viewpoint are captured from the viewer automatically when the draft does not " +
     "have them yet: draft the issue while the user is still looking at the thing they " +
     "are complaining about. The viewpoint is the entire view state — camera, section " +
-    "planes, and the isolated, hidden and selected sets — so show-issue can put the " +
+    "planes, the colour-coding, and the isolated, hidden and selected sets — so show-issue can put the " +
     "screen back exactly as it was, cutaway and all. Pass `recapture: true` to re-take " +
     "element and viewpoint from the current view, or `reset: true` to discard the draft " +
     "and start a new one. " +

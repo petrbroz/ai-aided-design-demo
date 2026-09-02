@@ -70,3 +70,19 @@ export async function json<T>(url: string): Promise<T> {
   if (!res.ok) throw new Error(`${url} → ${res.status} ${await res.text()}`);
   return (await res.json()) as T;
 }
+
+/**
+ * `#rgb` or `#rrggbb` → the canonical hex plus r/g/b in 0..1, or null. Deliberately no
+ * named colours and no alpha: the agent picks the colours, so a name it half-remembers
+ * must fail loudly rather than land on some near-black default.
+ */
+export function parseHexColor(value: string): { hex: string; rgb: [number, number, number] } | null {
+  const short = value.trim().replace(/^#/, "");
+  const hex = short.length === 3 ? short.replace(/./g, (c) => c + c) : short;
+  if (!/^[0-9a-fA-F]{6}$/.test(hex)) return null;
+  const n = parseInt(hex, 16);
+  return {
+    hex: `#${hex.toLowerCase()}`,
+    rgb: [((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255],
+  };
+}

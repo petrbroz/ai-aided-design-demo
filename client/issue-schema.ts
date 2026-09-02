@@ -34,6 +34,14 @@ export interface Camera {
   fov: number;
 }
 
+/** One theming colour and the objects wearing it. `color` is canonical `#rrggbb`. */
+export interface ThemingGroup {
+  color: string;
+  /** 0..1 blend with the object's own material. */
+  intensity: number;
+  dbIds: number[];
+}
+
 /**
  * Everything needed to put the viewer back the way it was when the issue was raised —
  * not just where the camera stood. A cut plane, an isolated floor or a hidden ceiling is
@@ -46,6 +54,13 @@ export interface Viewpoint {
   isolated: number[];
   hidden: number[];
   selection: number[];
+  /**
+   * Colour-coding is often the whole point of the view — "these three rooms are the
+   * wrong type" only reads as an issue while the types are painted. Optional because
+   * issues stored before set-theming-color existed do not carry it, and an absent list
+   * restores to no colour-coding, same as an empty one.
+   */
+  theming?: ThemingGroup[];
 }
 
 export interface IssueElement {

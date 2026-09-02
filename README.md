@@ -55,17 +55,18 @@ without `document.modelContext`.
 
 ## The tools
 
-Nine tools, all scoped to the design currently on screen. `dbId` is the APS Viewer object id.
+Ten tools, all scoped to the design currently on screen. `dbId` is the APS Viewer object id.
 
 | Tool | What it does |
 | --- | --- |
-| `get-view-state` | Model name, selection, isolated/hidden sets, active cut planes, camera, unit string. This is the tool that makes deixis work — "what am I looking at", "these two", "how tall is *this*". |
+| `get-view-state` | Model name, selection, isolated/hidden sets, active cut planes, the colour-coding legend, camera, unit string. This is the tool that makes deixis work — "what am I looking at", "these two", "how tall is *this*". |
 | `browse-hierarchy` | The design's logical hierarchy, one level at a time: model → category (`Doors`) → family (`M_Single flush`) → type (`915x2135mm`) → instance, each node with its `role` and `childCount`. Pass a selected dbId and the `ancestors` chain says which category, family and type it belongs to — the type's `childCount` is how many instances of it exist, so "are there any other doors of this type?" is one call. This is how a name becomes dbIds without guessing. |
 | `get-properties` | Detail mode (per-object property maps) or aggregate mode (`sum`/`avg`/`min`/`max`/`group-by`) over any set, up to the whole model. Aggregations return statistics, never rows. |
 | `measure-elements` | Bounding-box dimensions for one object, centre distance + per-axis gap for two. Every result is flagged `"approximate": true`. |
-| `set-view-state` | The one writer for everything `get-view-state` reads — `visibility`, `section`, and `camera`, singly or together. Visibility is `isolate`/`show`/`hide`/`reset` with an animated fit-to-view so the human sees the agent's focus move; section is one cut plane on a world axis, `offset` normalized 0..1 across the bounding box ("halfway up" needs no world coordinates); camera is an exact eye/target jump. Applied in that order, and passing `camera` suppresses the framing animation so an explicit shot is never overwritten. |
+| `set-view-state` | Everything `get-view-state` reads except the colour-coding — `visibility`, `section`, and `camera`, singly or together. Visibility is `isolate`/`show`/`hide`/`reset` with an animated fit-to-view so the human sees the agent's focus move; section is one cut plane on a world axis, `offset` normalized 0..1 across the bounding box ("halfway up" needs no world coordinates); camera is an exact eye/target jump. Applied in that order, and passing `camera` suppresses the framing animation so an explicit shot is never overwritten. |
+| `set-theming-color` | Colour-code objects: one colour per group of dbIds, so a property becomes visible across the whole model at once — "show me all the rooms and colour-code them by type". No built-in palette; **the agent picks the colours**, which is also why it has to say what each one means. Painting is recursive, so a category, family or type node from `browse-hierarchy` colours every instance under it and 5,000 doors cost one dbId. Later groups win on overlap, `keepExisting` layers instead of replacing, `clear` removes it. |
 | `list-issues` | Issues already raised on this design, newest first, with optional `status`/`severity`/`assignedTo` filters. Each carries the element it was raised against, so the agent can check for a duplicate before drafting one. |
-| `show-issue` | Navigate to an issue: restore the whole view it was raised from — camera, section planes, isolated/hidden sets, selection — so the reviewer sees what the reporter saw, cutaway and all. "Take me to ISS-2." |
+| `show-issue` | Navigate to an issue: restore the whole view it was raised from — camera, section planes, isolated/hidden sets, selection, colour-coding — so the reviewer sees what the reporter saw, cutaway and all. "Take me to ISS-2." |
 | `draft-issue` | Fill in the on-screen form without submitting. Every omitted field keeps its value, so "change the severity to high" is a one-field call. The element and the *entire* view state are captured from the live viewer when the draft lacks them. Returns the draft plus `missing` — what still has to be asked for. |
 | `submit-issue` | Submits the draft exactly as it stands. Takes no arguments. |
 
@@ -140,11 +141,27 @@ the Model Browser listens to. `viewer.isolate()` followed by `viewer.hide()` get
 pixels right and leaves that panel out of step. It is a private API; the SDK version is
 pinned by the page, which is what makes that an acceptable trade rather than a time bomb.
 
+The colour-coding travels with it too, and for the same reason the cut planes do:
+"these three rooms are the wrong type" only reads as an issue while the types are
+painted. Arriving at that issue with the model in its native grey is arriving at a
+different view. So `set-theming-color` is the one writer that `set-view-state` is not,
+and the record it keeps is a first-class part of the viewpoint — stored as
+`{ color, intensity, dbIds }` groups, uncapped like the rest.
+
+Keeping that record is the app's job rather than the Viewer's, because `setThemingColor`
+writes into the model and nothing gives the colours back — there is no
+`getThemingColor`. Without a record on this side, `get-view-state` could not report the
+colour-coding the agent applied one call earlier, and the legend the agent reads out
+would have nothing behind it. `applyTheming` therefore clears and repaints the whole
+record every time instead of layering onto the screen: it costs one write per themed
+object and it makes "what is on screen" and "what we think is on screen" the same object
+by construction, including when a later group overpaints an earlier one.
+
 Explode scale, layer visibility and render options are *not* captured. Nothing in this
-app reads or writes them — `get-view-state` cannot report them and `set-view-state`
-cannot set them — so an issue carrying them would restore state the rest of the app is
-blind to. The stored viewpoint is exactly the vocabulary those two tools share, which is
-what keeps `readViewpoint` and `restoreViewpoint` a matched pair.
+app reads or writes them — `get-view-state` cannot report them and no tool can set them
+— so an issue carrying them would restore state the rest of the app is blind to. The
+stored viewpoint is exactly the vocabulary the readers and writers share, which is what
+keeps `readViewpoint` and `restoreViewpoint` a matched pair.
 
 ### Issues never leave the browser
 
@@ -195,7 +212,7 @@ await mc.registerTool(descriptor, { signal: controller.signal });
 ```
 
 Before a different model loads, `main.ts` calls `unregisterTools()`, which aborts that
-controller and drops all nine tools; they are re-registered when the new model's geometry
+controller and drops all ten tools; they are re-registered when the new model's geometry
 arrives. The agent therefore never sees a tool it cannot meaningfully call. `get-properties`
 against a model that is half-unloaded is not a degraded answer — it is a wrong answer, and a
 wrong answer the agent will confidently repeat. Tying registration to viewer state makes the
@@ -327,3 +344,5 @@ viewer toolbar's camera menu to switch to first person and walk inside.
    with the section and visibility exactly as they were when you raised it. Clicking the
    row in the panel does the same thing.
 7. "Are there any critical issues on this model?"
+8. "Show me all the rooms and colour-code them by type." → the model repaints, and the
+   agent tells you which colour is which, because it chose them.

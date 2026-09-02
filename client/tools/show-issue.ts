@@ -35,6 +35,7 @@ function showIssue(id: string) {
       isolated: viewpoint.isolated.length,
       hidden: viewpoint.hidden.length,
       selection: viewpoint.selection.length,
+      themingGroups: viewpoint.theming?.length ?? 0,
     },
     ...readViewState(),
   };

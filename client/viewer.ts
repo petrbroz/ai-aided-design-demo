@@ -3,8 +3,8 @@
 // vector/box types live on `Autodesk.Viewing.Math` rather than the `THREE` global
 // (7.120/7.122), where `THREE` is now only a compatibility shim.
 
-import type { Viewpoint } from "./issue-schema.js";
-import { cap, json, round } from "./utils.js";
+import type { ThemingGroup, Viewpoint } from "./issue-schema.js";
+import { cap, json, parseHexColor, round } from "./utils.js";
 
 export type Axis = "x" | "y" | "z";
 
@@ -94,6 +94,9 @@ export async function loadModel(urn: string, name: string): Promise<void> {
   // one — but a model without a tree is still usable, so failing to get one is not fatal.
   await viewerRef.model.getObjectTreeAsync().catch(() => undefined);
 
+  // dbIds belong to a model, so the previous design's colour-coding is not merely stale
+  // here, it names objects that no longer exist.
+  themingGroups = [];
   modelName = name;
 }
 
@@ -258,6 +261,88 @@ export function worldBox(dbId: number): any {
   return box;
 }
 
+/* --------------------------------------------------------------------- theming */
+
+// The Viewer writes theming colours but never reads them back — there is no
+// `getThemingColor` — so the record lives here. Without it `get-view-state` could not
+// report the colour-coding it just applied, and an issue raised on a colour-coded view
+// would restore without the colours the issue is about.
+let themingGroups: ThemingGroup[] = [];
+
+/**
+ * Later groups win, which is what the viewer itself does with an id painted twice.
+ * Keeping the record in step with the screen is the whole job: a dbId listed under a
+ * colour it no longer wears turns the legend the agent reads out into a lie.
+ *
+ * Only the ids given are compared. An ancestor and its own descendant both painted stay
+ * as two entries, and paint order settles which one shows — see `applyTheming`.
+ */
+function dedupeTheming(groups: ThemingGroup[]): ThemingGroup[] {
+  const seen = new Set<number>();
+  const out: ThemingGroup[] = [];
+  for (let i = groups.length - 1; i >= 0; i--) {
+    const group = groups[i]!;
+    const dbIds: number[] = [];
+    for (const dbId of group.dbIds) {
+      if (seen.has(dbId)) continue;
+      seen.add(dbId);
+      dbIds.push(dbId);
+    }
+    if (dbIds.length > 0) out.unshift({ ...group, dbIds });
+  }
+  return out;
+}
+
+export function readTheming(): ThemingGroup[] {
+  return themingGroups.map((group) => ({ ...group, dbIds: [...group.dbIds] }));
+}
+
+/** Counts only: a colour-coded floor is thousands of dbIds, which no agent needs listed. */
+export function themingSummary() {
+  if (themingGroups.length === 0) return null;
+  return {
+    groups: themingGroups.map((g) => ({ color: g.color, intensity: g.intensity, objects: g.dbIds.length })),
+    objects: themingGroups.reduce((n, g) => n + g.dbIds.length, 0),
+  };
+}
+
+export function clearTheming(): void {
+  requireViewer().clearThemingColors();
+  themingGroups = [];
+}
+
+/**
+ * Paint each group, recursively — so a category, family or type node from
+ * browse-hierarchy colours every instance beneath it and 5,000 doors can be one dbId.
+ *
+ * Always clears and repaints the whole record rather than layering onto whatever is on
+ * screen. That costs one write per themed object and buys the two properties everything
+ * else here depends on: the record always describes the screen exactly, and a later
+ * group beats an earlier one the same way whether they arrived in one call or two.
+ *
+ * @param keep true to add to the current colour-coding instead of replacing it.
+ */
+export function applyTheming(groups: ThemingGroup[], keep: boolean): ThemingGroup[] {
+  const viewerRef = requireViewer();
+
+  // Every colour is parsed before anything is painted: a bad hex in the third group must
+  // not leave the first two on screen with the record disagreeing about them.
+  const next = dedupeTheming(keep ? [...themingGroups, ...groups] : groups).map((group) => {
+    const parsed = parseHexColor(group.color);
+    if (!parsed) throw new Error(`"${group.color}" is not a hex colour — use "#rrggbb", e.g. "#3b82f6".`);
+    return { group: { ...group, color: parsed.hex }, rgb: parsed.rgb };
+  });
+
+  viewerRef.clearThemingColors();
+  for (const { group, rgb } of next) {
+    const color = new Autodesk.Viewing.Math.Vector4(rgb[0], rgb[1], rgb[2], group.intensity);
+    for (const dbId of group.dbIds) viewerRef.setThemingColor(dbId, color, viewerRef.model, true);
+  }
+
+  themingGroups = next.map(({ group }) => group);
+  return readTheming();
+}
+
 /* ---------------------------------------------------------------------- camera */
 
 export interface CameraState {
@@ -311,6 +396,7 @@ export function readViewpoint(): Viewpoint {
     isolated: [...(viewerRef.getIsolatedNodes() ?? [])],
     hidden: [...(viewerRef.getHiddenNodes() ?? [])],
     selection: [...(viewerRef.getSelection() ?? [])],
+    theming: readTheming(),
   };
 }
 
@@ -343,6 +429,11 @@ export function restoreViewpoint(viewpoint: Viewpoint, selection?: number[]): Ca
     viewpoint.cutPlanes.map(([x, y, z, w]) => new Autodesk.Viewing.Math.Vector4(x, y, z, w))
   );
 
+  // Replaces, never layers, for the same reason visibility does: an issue stored before
+  // colour-coding existed carries none, and arriving at it wearing the colours from the
+  // last question asked would look like part of the issue.
+  applyTheming(viewpoint.theming ?? [], false);
+
   const dbIds = selection ?? viewpoint.selection;
   if (dbIds.length > 0) viewerRef.select(dbIds);
   else viewerRef.clearSelection();
@@ -363,6 +454,7 @@ export function readViewState() {
     isolated: cap<number>(viewerRef.getIsolatedNodes() ?? []),
     hidden: cap<number>(viewerRef.getHiddenNodes() ?? []),
     cutPlanes: readCutPlanes(),
+    theming: themingSummary(),
     camera: readCamera(),
   };
 }
