@@ -34,6 +34,20 @@ export interface Camera {
   fov: number;
 }
 
+/**
+ * Everything needed to put the viewer back the way it was when the issue was raised —
+ * not just where the camera stood. A cut plane, an isolated floor or a hidden ceiling is
+ * often the only reason the problem was visible at all, so the whole state travels with
+ * the issue. Cut planes are `[nx, ny, nz, d]`, the shape set-view-state also takes.
+ */
+export interface Viewpoint {
+  camera: Camera;
+  cutPlanes: number[][];
+  isolated: number[];
+  hidden: number[];
+  selection: number[];
+}
+
 export interface IssueElement {
   dbId: number;
   name: string;
@@ -47,8 +61,7 @@ export interface IssueDraft {
   assignedTo: string;
   dueDate: string;
   element: IssueElement | null;
-  camera: Camera | null;
-  screenshotUrl: string;
+  viewpoint: Viewpoint | null;
 }
 
 export interface Issue extends IssueDraft {
@@ -68,8 +81,7 @@ export function emptyDraft(): IssueDraft {
     assignedTo: "Unassigned",
     dueDate: "",
     element: null,
-    camera: null,
-    screenshotUrl: "",
+    viewpoint: null,
   };
 }
 
@@ -80,13 +92,13 @@ export function emptyDraft(): IssueDraft {
  */
 export function validateDraft(draft: Partial<IssueDraft> | null | undefined): string[] {
   const missing: string[] = [];
-  if (!draft) return ["title", "type", "severity", "element", "camera"];
+  if (!draft) return ["title", "type", "severity", "element", "viewpoint"];
 
   if (!draft.title || draft.title.trim() === "") missing.push("title");
   if (!ISSUE_TYPES.includes(draft.type as IssueType)) missing.push("type");
   if (!SEVERITIES.includes(draft.severity as Severity)) missing.push("severity");
   if (!draft.element || typeof draft.element.dbId !== "number") missing.push("element");
-  if (!draft.camera || !Array.isArray(draft.camera.position)) missing.push("camera");
+  if (!draft.viewpoint || !Array.isArray(draft.viewpoint.camera?.position)) missing.push("viewpoint");
 
   return missing;
 }

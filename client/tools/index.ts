@@ -6,7 +6,6 @@ import { browseHierarchyTool } from "./browse-hierarchy.js";
 import { getPropertiesTool } from "./get-properties.js";
 import { measureElementsTool } from "./measure-elements.js";
 import { setViewStateTool } from "./set-view-state.js";
-import { captureViewportTool } from "./capture-viewport.js";
 import { listIssuesTool } from "./list-issues.js";
 import { showIssueTool } from "./show-issue.js";
 import { draftIssueTool } from "./draft-issue.js";
@@ -18,7 +17,6 @@ export const TOOLS: ToolSpec[] = [
   getPropertiesTool,
   measureElementsTool,
   setViewStateTool,
-  captureViewportTool,
   listIssuesTool,
   showIssueTool,
   draftIssueTool,

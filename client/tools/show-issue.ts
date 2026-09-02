@@ -1,5 +1,5 @@
 import type { ToolSpec } from "../webmcp.js";
-import { readViewState, selectAndFocus } from "../viewer.js";
+import { readViewState, restoreViewpoint } from "../viewer.js";
 import * as issues from "../issues.js";
 
 function showIssue(id: string) {
@@ -12,19 +12,44 @@ function showIssue(id: string) {
         : `No issue "${id}" — no issues have been raised on this design yet.`
     );
   }
-  if (!issue.camera) throw new Error(`${issue.id} has no stored viewpoint to navigate to.`);
+  const { viewpoint, ...shown } = issue;
+  if (!viewpoint) throw new Error(`${issue.id} has no stored viewpoint to navigate to.`);
 
-  selectAndFocus(issue.camera, issue.element ? [issue.element.dbId] : []);
-  return { shown: issue, ...readViewState() };
+  // An issue raised before anything was selected still points at an element, so fall
+  // back to it rather than restoring the view with nothing highlighted in it.
+  const selection =
+    viewpoint.selection.length > 0
+      ? undefined
+      : issue.element
+        ? [issue.element.dbId]
+        : undefined;
+
+  restoreViewpoint(viewpoint, selection);
+
+  // The stored sets are uncapped and can be large; the view state below reports what
+  // actually landed on screen, so counts are all the agent needs of the stored ones.
+  return {
+    shown,
+    restored: {
+      cutPlanes: viewpoint.cutPlanes.length,
+      isolated: viewpoint.isolated.length,
+      hidden: viewpoint.hidden.length,
+      selection: viewpoint.selection.length,
+    },
+    ...readViewState(),
+  };
 }
 
 export const showIssueTool: ToolSpec = {
   name: "show-issue",
   description:
-    "Navigate to an existing issue: jump the camera to the viewpoint it was raised " +
-    "from and re-select the element it is about. Use it for 'take me to ISS-2' or " +
-    "'show me the one Priya raised'. Get the id from list-issues. Returns the issue " +
-    "and the resulting view state.",
+    "Navigate to an existing issue: restore the entire view it was raised from — " +
+    "camera, section planes, and which objects were isolated, hidden and selected — " +
+    "so the user sees what the reporter saw, cutaway and all. Whatever is currently " +
+    "hidden or cut is discarded first; this is a jump to a stored view, not a change " +
+    "on top of the present one. Use it for 'take me to ISS-2' or 'show me the one " +
+    "Priya raised'. Get the id from list-issues. Returns the issue, how much of the " +
+    "stored view it put back, and the resulting view state.",
   inputSchema: {
     type: "object",
     properties: {

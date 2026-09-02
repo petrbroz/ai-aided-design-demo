@@ -1,8 +1,8 @@
 import type { ToolSpec } from "../webmcp.js";
 import { vec3 } from "../webmcp.js";
-import { ASSIGNEES, ISSUE_TYPES, SEVERITIES } from "../../shared/issues.js";
-import type { Camera, IssueDraft } from "../../shared/issues.js";
-import { getSelection, nodeName, readCamera } from "../viewer.js";
+import { ASSIGNEES, ISSUE_TYPES, SEVERITIES } from "../issue-schema.js";
+import type { Camera, IssueDraft } from "../issue-schema.js";
+import { getSelection, nodeName, readViewpoint } from "../viewer.js";
 import * as issues from "../issues.js";
 
 type CameraInput = Partial<Camera> & Pick<Camera, "position" | "target">;
@@ -16,7 +16,6 @@ interface DraftIssueInput {
   dueDate?: string;
   dbId?: number;
   camera?: CameraInput;
-  screenshotUrl?: string;
   reset?: boolean;
   recapture?: boolean;
 }
@@ -32,7 +31,6 @@ function draftIssue(input: DraftIssueInput) {
   if (input.severity !== undefined) patch.severity = input.severity;
   if (input.assignedTo !== undefined) patch.assignedTo = input.assignedTo;
   if (input.dueDate !== undefined) patch.dueDate = input.dueDate;
-  if (input.screenshotUrl !== undefined) patch.screenshotUrl = input.screenshotUrl;
 
   const wantsCapture = input.recapture === true;
 
@@ -43,18 +41,25 @@ function draftIssue(input: DraftIssueInput) {
     if (dbId !== undefined) patch.element = { dbId, name: nodeName(dbId) };
   }
 
+  // The viewpoint is the whole view, not just the eye: cut planes and the isolated or
+  // hidden sets are usually the only reason the problem is visible, so they are stored
+  // with it. An explicit `camera` replaces the eye within the live view rather than
+  // standing alone — the agent picks the shot, the screen supplies the rest of the state.
   if (input.camera !== undefined) {
     // An agent naming a viewpoint knows where to stand and what to look at, not which
     // way is up — filling those from the live camera beats rejecting the call.
-    const live = readCamera();
-    patch.camera = {
-      position: input.camera.position,
-      target: input.camera.target,
-      up: input.camera.up ?? live.up,
-      fov: input.camera.fov ?? live.fov,
+    const live = readViewpoint();
+    patch.viewpoint = {
+      ...live,
+      camera: {
+        position: input.camera.position,
+        target: input.camera.target,
+        up: input.camera.up ?? live.camera.up,
+        fov: input.camera.fov ?? live.camera.fov,
+      },
     };
-  } else if (current.camera === null || wantsCapture) {
-    patch.camera = readCamera();
+  } else if (current.viewpoint === null || wantsCapture) {
+    patch.viewpoint = readViewpoint();
   }
 
   const draft = issues.patchDraft(patch);
@@ -77,11 +82,13 @@ export const draftIssueTool: ToolSpec = {
     "Fill in the new-issue form the user can see, without submitting it. Call it to " +
     "start a draft and again to revise one — every field you omit keeps its current " +
     "value, so 'change the severity to high' is a single-field call. The element and " +
-    "the camera viewpoint are captured from the viewer automatically when the draft " +
-    "does not have them yet: draft the issue while the user is still looking at the " +
-    "thing they are complaining about. Pass `recapture: true` to re-take both from the " +
-    "current view, or `reset: true` to discard the draft and start a new one. " +
-    "`screenshotUrl` accepts a url from capture-viewport to attach as evidence. " +
+    "the viewpoint are captured from the viewer automatically when the draft does not " +
+    "have them yet: draft the issue while the user is still looking at the thing they " +
+    "are complaining about. The viewpoint is the entire view state — camera, section " +
+    "planes, and the isolated, hidden and selected sets — so show-issue can put the " +
+    "screen back exactly as it was, cutaway and all. Pass `recapture: true` to re-take " +
+    "element and viewpoint from the current view, or `reset: true` to discard the draft " +
+    "and start a new one. " +
     "Returns the resulting draft and `missing` — the fields still required before it " +
     "can be submitted. Always read the draft back to the user and let them approve it; " +
     "submit-issue is a separate step on purpose.",
@@ -111,13 +118,15 @@ export const draftIssueTool: ToolSpec = {
         },
         required: ["position", "target"],
         additionalProperties: false,
-        description: "Viewpoint to store. Omit to use the current camera.",
+        description:
+          "Eye position to store instead of the live camera. The rest of the view state " +
+          "(section planes, visibility, selection) is always taken from the screen. " +
+          "Omit to store the current camera too.",
       },
-      screenshotUrl: { type: "string", description: "A capture-viewport url to attach." },
       reset: { type: "boolean", description: "Discard the current draft before applying this one." },
       recapture: {
         type: "boolean",
-        description: "Re-read the element and camera from the live viewer even if already set.",
+        description: "Re-read the element and the whole viewpoint from the live viewer even if already set.",
       },
     },
     additionalProperties: false,

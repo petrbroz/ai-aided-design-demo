@@ -1,4 +1,4 @@
-import { getSelection, initViewer, loadModel, nodeName, readCamera, selectAndFocus } from "./viewer.js";
+import { getSelection, initViewer, loadModel, nodeName, readViewpoint, restoreViewpoint } from "./viewer.js";
 import { isWebMcpAvailable, registerTools, unregisterTools } from "./webmcp.js";
 import { TOOLS } from "./tools/index.js";
 import { initPanel, setBusy, setStatus } from "./panel.js";
@@ -54,7 +54,7 @@ function useSelection(): void {
 }
 
 function captureViewpoint(): void {
-  issues.patchDraft({ camera: readCamera() });
+  issues.patchDraft({ viewpoint: readViewpoint() });
   setStatus("");
 }
 
@@ -97,8 +97,10 @@ async function main(): Promise<void> {
     selected,
     onSwitchModel: (model) => void switchDesign(model),
     onFocusIssue: (issue) => {
-      if (!issue.camera) return;
-      selectAndFocus(issue.camera, issue.element ? [issue.element.dbId] : []);
+      const { viewpoint, element } = issue;
+      if (!viewpoint) return;
+      const fallback = element ? [element.dbId] : undefined;
+      restoreViewpoint(viewpoint, viewpoint.selection.length > 0 ? undefined : fallback);
     },
     onUseSelection: useSelection,
     onCaptureViewpoint: captureViewpoint,

@@ -1,5 +1,5 @@
-import { ASSIGNEES, ISSUE_TYPES, SEVERITIES } from "../shared/issues.js";
-import type { Issue } from "../shared/issues.js";
+import { ASSIGNEES, ISSUE_TYPES, SEVERITIES } from "./issue-schema.js";
+import type { Issue, Viewpoint } from "./issue-schema.js";
 import * as issues from "./issues.js";
 import { round } from "./utils.js";
 
@@ -35,8 +35,7 @@ const assigneeEl = el<HTMLSelectElement>("f-assignee");
 const dueEl = el<HTMLInputElement>("f-due");
 
 const elementChip = el<HTMLSpanElement>("chip-element");
-const cameraChip = el<HTMLSpanElement>("chip-camera");
-const shotEl = el<HTMLImageElement>("draft-shot");
+const viewpointChip = el<HTMLSpanElement>("chip-camera");
 const msgEl = el<HTMLParagraphElement>("draft-msg");
 const submitEl = el<HTMLButtonElement>("btn-submit");
 
@@ -134,6 +133,22 @@ function setChip(chip: HTMLSpanElement, text: string | null): void {
   chip.classList.toggle("empty", text === null);
 }
 
+/** The chip has to show that more than the eye was captured, or nobody trusts that it was. */
+function viewpointLabel(viewpoint: Viewpoint): string {
+  const count = (items: unknown[], label: string) =>
+    items.length > 0 ? `${items.length} ${label}` : null;
+  const { camera, selection, cutPlanes, isolated, hidden } = viewpoint;
+  return [
+    `eye ${camera.position.map((n) => round(n, 1)).join(", ")}`,
+    count(selection, "selected"),
+    count(cutPlanes, cutPlanes.length === 1 ? "cut plane" : "cut planes"),
+    count(isolated, "isolated"),
+    count(hidden, "hidden"),
+  ]
+    .filter(Boolean)
+    .join(" · ");
+}
+
 function renderDraft(): void {
   const draft = issues.getDraft();
 
@@ -145,17 +160,11 @@ function renderDraft(): void {
   setValue(dueEl, draft.dueDate);
 
   setChip(elementChip, draft.element ? `#${draft.element.dbId} — ${draft.element.name}` : null);
-  setChip(
-    cameraChip,
-    draft.camera ? `eye ${draft.camera.position.map((n) => round(n, 1)).join(", ")}` : null
-  );
-
-  shotEl.hidden = draft.screenshotUrl === "";
-  if (draft.screenshotUrl !== "") shotEl.src = draft.screenshotUrl;
+  setChip(viewpointChip, draft.viewpoint ? viewpointLabel(draft.viewpoint) : null);
 
   // Only worth naming once someone has started; on a pristine form they read as errors.
   const gaps = issues.draftGaps();
-  const started = draft.title !== "" || draft.description !== "" || draft.element !== null || draft.camera !== null;
+  const started = draft.title !== "" || draft.description !== "" || draft.element !== null || draft.viewpoint !== null;
   msgEl.hidden = gaps.length === 0 || !started;
   msgEl.textContent = `Still needed: ${gaps.join(", ")}.`;
   submitEl.disabled = gaps.length > 0;

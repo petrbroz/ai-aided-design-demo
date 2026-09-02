@@ -1,6 +1,6 @@
-import { emptyDraft, validateDraft } from "../shared/issues.js";
-import type { Issue, IssueDraft } from "../shared/issues.js";
-import { json } from "./utils.js";
+import { emptyDraft, validateDraft } from "./issue-schema.js";
+import type { Issue, IssueDraft } from "./issue-schema.js";
+import * as store from "./issue-store.js";
 
 let urn: string | null = null;
 let draft: IssueDraft = emptyDraft();
@@ -64,11 +64,16 @@ export function setUrn(next: string): void {
 
 export async function refreshIssues(): Promise<Issue[]> {
   if (!urn) return [];
-  cached = await json<Issue[]>(`/api/issues?urn=${encodeURIComponent(urn)}`);
+  cached = await store.listIssues(urn);
   changed();
   return cached;
 }
 
+/**
+ * The validation here is not a duplicate of the store's — the store has none. Nothing
+ * downstream of this function will refuse a malformed issue, because there is no longer
+ * anything downstream: this is the last check before the record is written.
+ */
 export async function submitDraft(): Promise<Issue> {
   if (!urn) throw new Error("No design is loaded, so there is nothing to raise an issue against.");
 
@@ -77,17 +82,7 @@ export async function submitDraft(): Promise<Issue> {
     throw new Error(`The draft is incomplete — still missing: ${missing.join(", ")}.`);
   }
 
-  const res = await fetch("/api/issues", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ urn, draft }),
-  });
-  if (!res.ok) {
-    const body = (await res.json().catch(() => null)) as { error?: string } | null;
-    throw new Error(body?.error ?? `Submitting the issue failed (${res.status}).`);
-  }
-
-  const issue = (await res.json()) as Issue;
+  const issue = await store.createIssue(urn, draft);
   draft = emptyDraft();
   await refreshIssues();
   return issue;

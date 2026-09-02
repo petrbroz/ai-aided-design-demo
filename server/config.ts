@@ -1,4 +1,4 @@
-const REQUIRED = ["APS_CLIENT_ID", "APS_CLIENT_SECRET", "APS_BUCKET_KEY", "PUBLIC_BASE_URL"] as const;
+const REQUIRED = ["APS_CLIENT_ID", "APS_CLIENT_SECRET", "APS_BUCKET_KEY"] as const;
 
 const missing = REQUIRED.filter((name) => !Bun.env[name]);
 if (missing.length > 0) {
@@ -11,7 +11,6 @@ if (missing.length > 0) {
 export const APS_CLIENT_ID = Bun.env.APS_CLIENT_ID!;
 export const APS_CLIENT_SECRET = Bun.env.APS_CLIENT_SECRET!;
 export const APS_BUCKET_KEY = Bun.env.APS_BUCKET_KEY!;
-export const BASE_URL = Bun.env.PUBLIC_BASE_URL!.replace(/\/$/, "");
 
 export const APS_BASE = Bun.env.APS_BASE ?? "https://developer.api.autodesk.com";
 export const PORT = Number(Bun.env.PORT ?? "8080");

@@ -1,5 +1,5 @@
 import type { ToolSpec } from "../webmcp.js";
-import { ASSIGNEES, SEVERITIES, STATUSES } from "../../shared/issues.js";
+import { ASSIGNEES, SEVERITIES, STATUSES } from "../issue-schema.js";
 import * as issues from "../issues.js";
 import { cap, MAX_ITEMS } from "../utils.js";
 

@@ -65,14 +65,6 @@ export function distinct(values: string[]): string[] {
   return groupBy(values, (v) => v).map(([value]) => value);
 }
 
-/** Reject a promise that never settles, rather than hanging the agent's tool call. */
-export function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
-  return new Promise<T>((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error(message)), ms);
-    promise.then(resolve, reject).finally(() => clearTimeout(timer));
-  });
-}
-
 export async function json<T>(url: string): Promise<T> {
   const res = await fetch(url);
   if (!res.ok) throw new Error(`${url} → ${res.status} ${await res.text()}`);

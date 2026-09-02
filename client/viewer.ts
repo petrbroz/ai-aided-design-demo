@@ -3,6 +3,7 @@
 // vector/box types live on `Autodesk.Viewing.Math` rather than the `THREE` global
 // (7.120/7.122), where `THREE` is now only a compatibility shim.
 
+import type { Viewpoint } from "./issue-schema.js";
 import { cap, json, round } from "./utils.js";
 
 export type Axis = "x" | "y" | "z";
@@ -295,17 +296,59 @@ export function setCameraView(
   return readCamera();
 }
 
+/* ------------------------------------------------------------------- viewpoint */
+
 /**
+ * The whole restorable view, uncapped, for storing on an issue. Deliberately not
+ * `readViewState`: that one is agent-facing and caps its lists at 50, and a truncated
+ * hidden set restores a *different* view while claiming to be the original one.
+ */
+export function readViewpoint(): Viewpoint {
+  const viewerRef = requireViewer();
+  return {
+    camera: readCamera(),
+    cutPlanes: readCutPlanes(),
+    isolated: [...(viewerRef.getIsolatedNodes() ?? [])],
+    hidden: [...(viewerRef.getHiddenNodes() ?? [])],
+    selection: [...(viewerRef.getSelection() ?? [])],
+  };
+}
+
+/**
+ * Put the viewer back into a stored viewpoint: visibility, then section, then selection,
+ * then camera. That order matters — visibility is reset from scratch before the stored
+ * sets go back on (whatever is hidden *now* is not part of the issue), and the camera
+ * goes last because nothing after it may re-frame.
+ *
  * Deliberately no `fitToView`: the stored camera *is* the framing, and re-framing on the
  * element would throw away the eye position that made the issue legible — inside a room,
  * at head height, looking at one column.
+ *
+ * @param selection overrides the stored selection, for an issue whose element outlived it.
  */
-export function selectAndFocus(camera: CameraState, dbIds: number[]): CameraState {
+export function restoreViewpoint(viewpoint: Viewpoint, selection?: number[]): CameraState {
   const viewerRef = requireViewer();
-  const applied = setCameraView(camera.position, camera.target, camera.up, camera.fov);
+
+  // `aggregateRestore` is the call the SDK's own ViewerState.restoreState makes, and the
+  // reason to reach past the public API for it: an empty `isolatedIds` resets visibility
+  // outright, hiding is done with `skipIsolated` so a hidden ancestor cannot re-hide an
+  // isolated child, and it fires the aggregate isolation/hidden events that keep the
+  // Model Browser in step. `viewer.isolate()` + `viewer.hide()` does neither of the last
+  // two. Private, but the SDK version is pinned by the page, so it cannot move under us.
+  viewerRef.impl.visibilityManager.aggregateRestore([
+    { model: viewerRef.model, isolatedIds: viewpoint.isolated, hiddenIds: viewpoint.hidden },
+  ]);
+
+  viewerRef.setCutPlanes(
+    viewpoint.cutPlanes.map(([x, y, z, w]) => new Autodesk.Viewing.Math.Vector4(x, y, z, w))
+  );
+
+  const dbIds = selection ?? viewpoint.selection;
   if (dbIds.length > 0) viewerRef.select(dbIds);
   else viewerRef.clearSelection();
-  return applied;
+
+  const { camera } = viewpoint;
+  return setCameraView(camera.position, camera.target, camera.up, camera.fov);
 }
 
 /* ------------------------------------------------------------------ view state */
