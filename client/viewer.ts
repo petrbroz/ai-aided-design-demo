@@ -3,6 +3,7 @@
 // vector/box types live on `Autodesk.Viewing.Math` rather than the `THREE` global
 // (7.120/7.122), where `THREE` is now only a compatibility shim.
 
+import { withSelection } from "./issue-schema.js";
 import type { ThemingGroup, Viewpoint } from "./issue-schema.js";
 import { cap, json, parseHexColor, round } from "./utils.js";
 
@@ -424,27 +425,31 @@ export async function setCameraView(
 /* ------------------------------------------------------------------- viewpoint */
 
 /**
- * The whole restorable view, uncapped, for storing on an issue. Deliberately not
- * `readViewState`: that one is agent-facing and caps its lists at 50, and a truncated
- * hidden set restores a *different* view while claiming to be the original one.
+ * The whole restorable view, in the viewer's own format, for storing on an issue.
+ * `getState` captures more than this app has fields for — explode scale, render options,
+ * whatever the loaded extensions inject — and `restoreState` puts all of it back, which
+ * is the point of keeping the state verbatim instead of copying a hand-picked subset of
+ * it out and hoping nothing was left behind.
+ *
+ * Theming rides alongside rather than inside: the viewer state has no field for theming
+ * colours, and the viewer will not read them back out either, so the record `applyTheming`
+ * keeps is what travels with the issue.
  */
 export function readViewpoint(): Viewpoint {
-  const viewerRef = requireViewer();
-  return {
-    camera: readCamera(),
-    cutPlanes: readCutPlanes(),
-    isolated: [...(viewerRef.getIsolatedNodes() ?? [])],
-    hidden: [...(viewerRef.getHiddenNodes() ?? [])],
-    selection: [...(viewerRef.getSelection() ?? [])],
-    theming: readTheming(),
-  };
+  return { state: requireViewer().getState(), theming: readTheming() };
 }
 
 /**
- * Put the viewer back into a stored viewpoint: visibility, then section, then selection,
- * then camera. That order matters — visibility is reset from scratch before the stored
- * sets go back on (whatever is hidden *now* is not part of the issue), and the camera
- * goes last because nothing after it may re-frame.
+ * Put the viewer back into a stored viewpoint. `restoreState` does the work — visibility,
+ * section planes, selection and camera, in the order the SDK settled on — with `immediate`
+ * false so the camera flies there rather than cutting: a hard cut drops the human
+ * somewhere else in the building with nothing to say how the two places relate, while the
+ * flight path carries exactly that.
+ *
+ * Theming goes on first so the colours are already there when the flight starts, and it
+ * replaces rather than layers, for the same reason `restoreState` replaces visibility: an
+ * issue stored before colour-coding existed carries none, and arriving at it wearing the
+ * colours from the last question asked would look like part of the issue.
  *
  * Deliberately no `fitToView`: the stored camera *is* the framing, and re-framing on the
  * element would throw away the eye position that made the issue legible — inside a room,
@@ -457,31 +462,15 @@ export function readViewpoint(): Viewpoint {
 export async function restoreViewpoint(viewpoint: Viewpoint, selection?: number[]): Promise<CameraState> {
   const viewerRef = requireViewer();
 
-  // `aggregateRestore` is the call the SDK's own ViewerState.restoreState makes, and the
-  // reason to reach past the public API for it: an empty `isolatedIds` resets visibility
-  // outright, hiding is done with `skipIsolated` so a hidden ancestor cannot re-hide an
-  // isolated child, and it fires the aggregate isolation/hidden events that keep the
-  // Model Browser in step. `viewer.isolate()` + `viewer.hide()` does neither of the last
-  // two. Private, but the SDK version is pinned by the page, so it cannot move under us.
-  viewerRef.impl.visibilityManager.aggregateRestore([
-    { model: viewerRef.model, isolatedIds: viewpoint.isolated, hiddenIds: viewpoint.hidden },
-  ]);
-
-  viewerRef.setCutPlanes(
-    viewpoint.cutPlanes.map(([x, y, z, w]) => new Autodesk.Viewing.Math.Vector4(x, y, z, w))
-  );
-
-  // Replaces, never layers, for the same reason visibility does: an issue stored before
-  // colour-coding existed carries none, and arriving at it wearing the colours from the
-  // last question asked would look like part of the issue.
   applyTheming(viewpoint.theming ?? [], false);
 
-  const dbIds = selection ?? viewpoint.selection;
-  if (dbIds.length > 0) viewerRef.select(dbIds);
-  else viewerRef.clearSelection();
+  const { state } = selection ? withSelection(viewpoint, selection) : viewpoint;
+  if (!viewerRef.restoreState(state, undefined, false)) {
+    throw new Error("The viewer would not restore the stored view state.");
+  }
 
-  const { camera } = viewpoint;
-  return setCameraView(camera.position, camera.target, camera.up, camera.fov);
+  await awaitTransition(viewerRef);
+  return readCamera();
 }
 
 /* ------------------------------------------------------------------ view state */

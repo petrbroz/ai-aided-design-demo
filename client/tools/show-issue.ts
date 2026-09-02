@@ -1,5 +1,6 @@
 import type { ToolSpec } from "../webmcp.js";
 import { readViewState, restoreViewpoint } from "../viewer.js";
+import { summarizeViewpoint, viewpointSelection } from "../issue-schema.js";
 import * as issues from "../issues.js";
 
 async function showIssue(id: string) {
@@ -18,7 +19,7 @@ async function showIssue(id: string) {
   // An issue raised before anything was selected still points at an element, so fall
   // back to it rather than restoring the view with nothing highlighted in it.
   const selection =
-    viewpoint.selection.length > 0
+    viewpointSelection(viewpoint).length > 0
       ? undefined
       : issue.element
         ? [issue.element.dbId]
@@ -27,16 +28,13 @@ async function showIssue(id: string) {
   await restoreViewpoint(viewpoint, selection);
 
   // The stored sets are uncapped and can be large; the view state below reports what
-  // actually landed on screen, so counts are all the agent needs of the stored ones.
+  // actually landed on screen, so counts are all the agent needs of the stored ones. The
+  // eye is dropped for the same reason — `camera` below is the one that landed.
+  const { eye: _eye, ...restored } = summarizeViewpoint(viewpoint);
+
   return {
     shown,
-    restored: {
-      cutPlanes: viewpoint.cutPlanes.length,
-      isolated: viewpoint.isolated.length,
-      hidden: viewpoint.hidden.length,
-      selection: viewpoint.selection.length,
-      themingGroups: viewpoint.theming?.length ?? 0,
-    },
+    restored,
     ...readViewState(),
   };
 }

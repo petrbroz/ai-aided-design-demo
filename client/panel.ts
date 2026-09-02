@@ -1,4 +1,4 @@
-import { ASSIGNEES, ISSUE_TYPES, SEVERITIES } from "./issue-schema.js";
+import { ASSIGNEES, ISSUE_TYPES, SEVERITIES, summarizeViewpoint } from "./issue-schema.js";
 import type { Issue, Viewpoint } from "./issue-schema.js";
 import * as issues from "./issues.js";
 import { round } from "./utils.js";
@@ -135,16 +135,15 @@ function setChip(chip: HTMLSpanElement, text: string | null): void {
 
 /** The chip has to show that more than the eye was captured, or nobody trusts that it was. */
 function viewpointLabel(viewpoint: Viewpoint): string {
-  const count = (items: unknown[], label: string) =>
-    items.length > 0 ? `${items.length} ${label}` : null;
-  const { camera, selection, cutPlanes, isolated, hidden, theming } = viewpoint;
+  const count = (n: number, one: string, many = one) => (n > 0 ? `${n} ${n === 1 ? one : many}` : null);
+  const { eye, selection, cutPlanes, isolated, hidden, theming } = summarizeViewpoint(viewpoint);
   return [
-    `eye ${camera.position.map((n) => round(n, 1)).join(", ")}`,
+    eye ? `eye ${eye.map((n) => round(n, 1)).join(", ")}` : null,
     count(selection, "selected"),
-    count(cutPlanes, cutPlanes.length === 1 ? "cut plane" : "cut planes"),
+    count(cutPlanes, "cut plane", "cut planes"),
     count(isolated, "isolated"),
     count(hidden, "hidden"),
-    count(theming ?? [], theming?.length === 1 ? "colour" : "colours"),
+    count(theming, "colour", "colours"),
   ]
     .filter(Boolean)
     .join(" · ");

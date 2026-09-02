@@ -1,4 +1,5 @@
 import { getSelection, initViewer, loadModel, nodeName, readViewpoint, restoreViewpoint } from "./viewer.js";
+import { viewpointSelection } from "./issue-schema.js";
 import { isWebMcpAvailable, registerTools, unregisterTools } from "./webmcp.js";
 import { TOOLS } from "./tools/index.js";
 import { initPanel, setBusy, setStatus } from "./panel.js";
@@ -100,7 +101,7 @@ async function main(): Promise<void> {
       const { viewpoint, element } = issue;
       if (!viewpoint) return;
       const fallback = element ? [element.dbId] : undefined;
-      void restoreViewpoint(viewpoint, viewpoint.selection.length > 0 ? undefined : fallback);
+      void restoreViewpoint(viewpoint, viewpointSelection(viewpoint).length > 0 ? undefined : fallback);
     },
     onUseSelection: useSelection,
     onCaptureViewpoint: captureViewpoint,

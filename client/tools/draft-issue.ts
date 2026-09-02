@@ -1,11 +1,9 @@
 import type { ToolSpec } from "../webmcp.js";
 import { vec3 } from "../webmcp.js";
-import { ASSIGNEES, ISSUE_TYPES, SEVERITIES } from "../issue-schema.js";
-import type { Camera, IssueDraft } from "../issue-schema.js";
+import { ASSIGNEES, ISSUE_TYPES, SEVERITIES, withCamera, withViewpointSummary } from "../issue-schema.js";
+import type { CameraInput, IssueDraft } from "../issue-schema.js";
 import { getSelection, nodeName, readViewpoint } from "../viewer.js";
 import * as issues from "../issues.js";
-
-type CameraInput = Partial<Camera> & Pick<Camera, "position" | "target">;
 
 interface DraftIssueInput {
   title?: string;
@@ -46,18 +44,7 @@ function draftIssue(input: DraftIssueInput) {
   // with it. An explicit `camera` replaces the eye within the live view rather than
   // standing alone — the agent picks the shot, the screen supplies the rest of the state.
   if (input.camera !== undefined) {
-    // An agent naming a viewpoint knows where to stand and what to look at, not which
-    // way is up — filling those from the live camera beats rejecting the call.
-    const live = readViewpoint();
-    patch.viewpoint = {
-      ...live,
-      camera: {
-        position: input.camera.position,
-        target: input.camera.target,
-        up: input.camera.up ?? live.camera.up,
-        fov: input.camera.fov ?? live.camera.fov,
-      },
-    };
+    patch.viewpoint = withCamera(readViewpoint(), input.camera);
   } else if (current.viewpoint === null || wantsCapture) {
     patch.viewpoint = readViewpoint();
   }
@@ -66,7 +53,7 @@ function draftIssue(input: DraftIssueInput) {
   const missing = issues.draftGaps();
 
   return {
-    draft,
+    draft: withViewpointSummary(draft),
     missing,
     ready: missing.length === 0,
     note:

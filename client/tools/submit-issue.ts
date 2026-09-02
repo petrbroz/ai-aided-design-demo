@@ -1,4 +1,5 @@
 import type { ToolSpec } from "../webmcp.js";
+import { withViewpointSummary } from "../issue-schema.js";
 import * as issues from "../issues.js";
 
 export const submitIssueTool: ToolSpec = {
@@ -13,6 +14,6 @@ export const submitIssueTool: ToolSpec = {
   inputSchema: { type: "object", properties: {}, additionalProperties: false },
   run: async () => {
     const issue = await issues.submitDraft();
-    return { submitted: issue, note: `Raised ${issue.id}. It is now in the issue list.` };
+    return { submitted: withViewpointSummary(issue), note: `Raised ${issue.id}. It is now in the issue list.` };
   },
 };

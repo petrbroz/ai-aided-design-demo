@@ -1,4 +1,4 @@
-import { CURRENT_USER } from "./issue-schema.js";
+import { CURRENT_USER, normalizeViewpoint } from "./issue-schema.js";
 import type { Issue, IssueDraft } from "./issue-schema.js";
 
 const DB_NAME = "bim-design-review";
@@ -73,11 +73,15 @@ async function objectStore(mode: IDBTransactionMode): Promise<IDBObjectStore> {
   return db.transaction(STORE, mode).objectStore(STORE);
 }
 
-/** Newest first, the order the panel and `list-issues` both present. */
+/**
+ * Newest first, the order the panel and `list-issues` both present. Viewpoints are
+ * normalized here because this is the boundary where records written by an older version
+ * of the app come back: past this point there is one viewpoint format.
+ */
 export async function listIssues(urn: string): Promise<Issue[]> {
   const store = await objectStore("readonly");
   const issues = await promisify(store.index(BY_URN).getAll(urn) as IDBRequest<Issue[]>);
-  return issues.reverse();
+  return issues.reverse().map((issue) => ({ ...issue, viewpoint: normalizeViewpoint(issue.viewpoint) }));
 }
 
 /** Deletes the oldest records until `MAX_ISSUES` remain. Runs inside the caller's transaction. */

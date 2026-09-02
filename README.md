@@ -134,19 +134,27 @@ put back rather than the dbId lists themselves. Both stay small in practice: the
 tracks explicitly hidden and isolated nodes as sets, not as the complement of what is
 visible.
 
-Restoring visibility goes through `viewer.impl.visibilityManager.aggregateRestore`, the
-same call the SDK's own `ViewerState.restoreState` makes — it resets, applies isolation
-and hiding in the one order that cannot lose information, and fires the aggregate events
-the Model Browser listens to. `viewer.isolate()` followed by `viewer.hide()` gets the
-pixels right and leaves that panel out of step. It is a private API; the SDK version is
-pinned by the page, which is what makes that an acceptable trade rather than a time bomb.
+Saving and restoring are the Viewer's own `getState` and `restoreState`, and what is
+stored is the viewer state object verbatim rather than a subset copied out field by
+field. That is how a viewpoint quietly stops carrying things: the copy has to be kept in
+step at both ends, and whatever nobody remembers to add to both is simply gone from every
+issue filed after it. Handing the object back unopened also means visibility is restored
+the one way that cannot lose information — reset, then isolate, then hide, with the
+aggregate events the Model Browser listens to — which `viewer.isolate()` followed by
+`viewer.hide()` gets pixel-right while leaving that panel out of step.
+
+`immediate` is left `false`, so the camera flies to the stored view instead of cutting to
+it, for the same reason `set-view-state` uses `utilities.transitionView` rather than
+`navigation.setView`: a hard cut drops the reviewer somewhere else in the building with
+nothing to say how the two places relate, and the flight path carries exactly that.
 
 The colour-coding travels with it too, and for the same reason the cut planes do:
 "these three rooms are the wrong type" only reads as an issue while the types are
 painted. Arriving at that issue with the model in its native grey is arriving at a
 different view. So `set-theming-color` is the one writer that `set-view-state` is not,
 and the record it keeps is a first-class part of the viewpoint — stored as
-`{ color, intensity, dbIds }` groups, uncapped like the rest.
+`{ color, intensity, dbIds }` groups, uncapped like the rest, beside the viewer state
+rather than inside it, because the viewer state has no field for theming colours.
 
 Keeping that record is the app's job rather than the Viewer's, because `setThemingColor`
 writes into the model and nothing gives the colours back — there is no
@@ -157,11 +165,12 @@ record every time instead of layering onto the screen: it costs one write per th
 object and it makes "what is on screen" and "what we think is on screen" the same object
 by construction, including when a later group overpaints an earlier one.
 
-Explode scale, layer visibility and render options are *not* captured. Nothing in this
-app reads or writes them — `get-view-state` cannot report them and no tool can set them
-— so an issue carrying them would restore state the rest of the app is blind to. The
-stored viewpoint is exactly the vocabulary the readers and writers share, which is what
-keeps `readViewpoint` and `restoreViewpoint` a matched pair.
+Explode scale, render options and whatever the loaded extensions inject ride along too,
+even though no tool here can read or write them: `get-view-state` cannot report the
+explode scale and nothing can set it. Storing them anyway is the point of keeping the
+state verbatim — a viewpoint is not limited to the vocabulary the tools happen to share
+today, and a view the user set up by hand in the Viewer's own UI comes back the way they
+left it.
 
 ### Issues never leave the browser
 
