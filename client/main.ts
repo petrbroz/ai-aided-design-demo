@@ -100,7 +100,7 @@ async function main(): Promise<void> {
       const { viewpoint, element } = issue;
       if (!viewpoint) return;
       const fallback = element ? [element.dbId] : undefined;
-      restoreViewpoint(viewpoint, viewpoint.selection.length > 0 ? undefined : fallback);
+      void restoreViewpoint(viewpoint, viewpoint.selection.length > 0 ? undefined : fallback);
     },
     onUseSelection: useSelection,
     onCaptureViewpoint: captureViewpoint,

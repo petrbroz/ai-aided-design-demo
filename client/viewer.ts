@@ -365,19 +365,59 @@ export function readCamera(): CameraState {
   return { position: tuple(camera.position), target: tuple(target), up: tuple(camera.up), fov: round(camera.fov, 2) };
 }
 
-/** An exact jump, no path animation. `up` and `fov` default to the camera's current. */
-export function setCameraView(
+/** A transition is ~0.5s of flight; this only has to be longer than that. */
+const TRANSITION_TIMEOUT_MS = 3000;
+
+/**
+ * The transition advances on `requestAnimationFrame`, so a hidden tab — or a model
+ * unloaded mid-flight — can leave `CAMERA_TRANSITION_COMPLETED` unfired indefinitely. A
+ * tool call has to return, so the wait is capped: the caller then reports a camera
+ * caught mid-flight instead of hanging.
+ */
+async function awaitTransition(viewerRef: any): Promise<void> {
+  await Promise.race([
+    Autodesk.Viewing.EventUtils.waitUntilTransitionEnded(viewerRef),
+    new Promise((resolve) => setTimeout(resolve, TRANSITION_TIMEOUT_MS)),
+  ]);
+}
+
+/** For callers that start a transition of their own — `fitToView` — and then read back. */
+export function awaitCameraTransition(): Promise<void> {
+  return awaitTransition(requireViewer());
+}
+
+/**
+ * Flies to an exact view, resolving once it has landed so the camera read back is the
+ * one on screen. `up` and `fov` default to the camera's current.
+ *
+ * `utilities.transitionView` rather than `navigation.setView`: a hard cut drops the
+ * human somewhere else in the building with nothing to say how the two places relate,
+ * while the flight path carries exactly that. The transition also parks the pivot on the
+ * new target, so the first orbit after the agent moves the camera turns around what the
+ * agent aimed at rather than around wherever the last pivot was left.
+ */
+export async function setCameraView(
   position: [number, number, number],
   target: [number, number, number],
   up?: [number, number, number],
   fov?: number
-): CameraState {
-  const nav = requireViewer().navigation;
-  const upVec = up ? vec3(up) : nav.getCamera().up.clone();
+): Promise<CameraState> {
+  const viewerRef = requireViewer();
+  const nav = viewerRef.navigation;
 
-  nav.setView(vec3(position), vec3(target), upVec);
-  if (fov !== undefined) nav.setVerticalFov(fov, false);
+  // `reorient: false` — a stored `up` is part of the shot, and recomputing it from world
+  // up would quietly level a deliberately rolled view. `worldUp` and `pivot` are left
+  // undefined for transitionView to fill with the scene's up vector and the target.
+  viewerRef.utilities.transitionView(
+    vec3(position),
+    vec3(target),
+    fov ?? nav.getVerticalFov(),
+    up ? vec3(up) : nav.getCamera().up.clone(),
+    undefined,
+    false
+  );
 
+  await awaitTransition(viewerRef);
   return readCamera();
 }
 
@@ -410,9 +450,11 @@ export function readViewpoint(): Viewpoint {
  * element would throw away the eye position that made the issue legible — inside a room,
  * at head height, looking at one column.
  *
+ * Resolves when the camera has arrived, so a caller can report the view that landed.
+ *
  * @param selection overrides the stored selection, for an issue whose element outlived it.
  */
-export function restoreViewpoint(viewpoint: Viewpoint, selection?: number[]): CameraState {
+export async function restoreViewpoint(viewpoint: Viewpoint, selection?: number[]): Promise<CameraState> {
   const viewerRef = requireViewer();
 
   // `aggregateRestore` is the call the SDK's own ViewerState.restoreState makes, and the

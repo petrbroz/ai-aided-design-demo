@@ -1,7 +1,7 @@
 import type { ToolSpec } from "../webmcp.js";
 import type { Axis } from "../viewer.js";
 import { numberArray, vec3 } from "../webmcp.js";
-import { readViewState, requireViewer, setCameraView } from "../viewer.js";
+import { awaitCameraTransition, readViewState, requireViewer, setCameraView } from "../viewer.js";
 import { clamp, round } from "../utils.js";
 
 type VisibilityMode = "isolate" | "show" | "hide" | "reset";
@@ -10,7 +10,7 @@ const MODES: VisibilityMode[] = ["isolate", "show", "hide", "reset"];
 const AXES: Axis[] = ["x", "y", "z"];
 
 /** @param frame false when an explicit camera would otherwise be overwritten here. */
-function applyVisibility(args: { mode: VisibilityMode; dbIds?: number[] }, frame: boolean) {
+async function applyVisibility(args: { mode: VisibilityMode; dbIds?: number[] }, frame: boolean) {
   const viewer = requireViewer();
   const { mode } = args;
   let dbIds = args.dbIds ?? [];
@@ -42,6 +42,8 @@ function applyVisibility(args: { mode: VisibilityMode; dbIds?: number[] }, frame
       viewer.select(dbIds);
       viewer.fitToView(dbIds);
     }
+    // Waited out, or the view state below would report a camera still in flight.
+    await awaitCameraTransition();
   }
 
   return { mode, affected: mode === "reset" ? 0 : dbIds.length, framed };
@@ -82,17 +84,17 @@ function applySection(args: { axis?: unknown; offset?: unknown; flip?: boolean; 
  * Applied in a fixed order — visibility, section, camera — so a call that both isolates
  * objects *and* names a camera gets the camera it asked for, not the fit-to-view.
  */
-function setViewState(args: any) {
+async function setViewState(args: any) {
   const { visibility, section, camera } = args;
   if (!visibility && !section && !camera) {
     throw new Error("Pass at least one of `visibility`, `section`, or `camera`.");
   }
 
   const applied: Record<string, unknown> = {};
-  if (visibility) applied.visibility = applyVisibility(visibility, camera === undefined);
+  if (visibility) applied.visibility = await applyVisibility(visibility, camera === undefined);
   if (section) applied.section = applySection(section);
   if (camera) {
-    setCameraView(camera.position, camera.target, camera.up, camera.fov);
+    await setCameraView(camera.position, camera.target, camera.up, camera.fov);
     applied.camera = { set: true };
   }
 
@@ -109,12 +111,12 @@ export const setViewStateTool: ToolSpec = {
     "leaves the camera alone. `section` cuts the model along a world axis, with " +
     "`offset` normalized 0..1 across the bounding box on that axis (0.5 = halfway), " +
     "so no world coordinates are needed; `section.clear` removes all cut planes. " +
-    "`camera` jumps to an exact eye position and look-at target with no path " +
-    "animation — use it for a precise, reproducible shot, and `visibility` alone " +
-    "when you just want to 'look at' some objects; `camera` is also how you return " +
-    "to a viewpoint an issue was raised from. Passing `camera` suppresses the " +
-    "framing animation, so an explicit shot is never overwritten. Returns the full " +
-    "view state afterwards, in the same shape get-view-state reports.",
+    "`camera` flies to an exact eye position and look-at target — use it for a " +
+    "precise, reproducible shot, and `visibility` alone when you just want to " +
+    "'look at' some objects; `camera` is also how you return to a viewpoint an " +
+    "issue was raised from. Passing `camera` suppresses the framing animation, so " +
+    "an explicit shot is never overwritten. Returns the full view state once the " +
+    "camera has landed, in the same shape get-view-state reports.",
   inputSchema: {
     type: "object",
     properties: {

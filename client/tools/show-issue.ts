@@ -2,7 +2,7 @@ import type { ToolSpec } from "../webmcp.js";
 import { readViewState, restoreViewpoint } from "../viewer.js";
 import * as issues from "../issues.js";
 
-function showIssue(id: string) {
+async function showIssue(id: string) {
   const issue = issues.findIssue(id);
   if (!issue) {
     const known = issues.getIssues().map((i) => i.id);
@@ -24,7 +24,7 @@ function showIssue(id: string) {
         ? [issue.element.dbId]
         : undefined;
 
-  restoreViewpoint(viewpoint, selection);
+  await restoreViewpoint(viewpoint, selection);
 
   // The stored sets are uncapped and can be large; the view state below reports what
   // actually landed on screen, so counts are all the agent needs of the stored ones.
