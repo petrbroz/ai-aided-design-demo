@@ -3,28 +3,232 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>AI-Aided Design — WebMCP + APS Viewer</title>
+    <title>BIM Design Review — WebMCP + APS Viewer</title>
 
     <link rel="stylesheet" href="https://developer.api.autodesk.com/modelderivative/v2/viewers/7.126/style.min.css" />
     <script src="https://developer.api.autodesk.com/modelderivative/v2/viewers/7.126/viewer3D.min.js"></script>
 
     <style>
-      * { box-sizing: border-box; }
-      html, body { margin: 0; height: 100%; overflow: hidden; }
-      #viewer { position: absolute; inset: 0; }
-      #designs {
-        position: absolute; top: 10px; left: 10px; z-index: 10;
-        max-width: 320px; padding: 6px 8px; border-radius: 4px;
-        border: 1px solid rgba(231, 233, 236, 0.25);
-        background: rgba(16, 18, 21, 0.85); color: #e7e9ec; font: inherit;
+      :root {
+        --bg: #101215;
+        --panel: #16191d;
+        --line: #2a2f36;
+        --ink: #e7e9ec;
+        --dim: #99a1ac;
+        --accent: #4c9aff;
+        --low: #6b7684;
+        --medium: #4c9aff;
+        --high: #f5a623;
+        --critical: #e5484d;
       }
-      #designs:disabled { opacity: 0.5; }
-      #designs[hidden] { display: none; }
+
+      * { box-sizing: border-box; }
+
+      html, body {
+        margin: 0;
+        height: 100%;
+        overflow: hidden;
+        background: var(--bg);
+        color: var(--ink);
+        font: 13px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      }
+
+      /* Header, viewport, panel. The panel scrolls on its own; the viewer never does. */
+      body {
+        display: grid;
+        grid-template-columns: 1fr 340px;
+        grid-template-rows: auto 1fr;
+        grid-template-areas: "header header" "viewer panel";
+      }
+
+      header {
+        grid-area: header;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 0 14px;
+        height: 44px;
+        border-bottom: 1px solid var(--line);
+        background: var(--panel);
+      }
+      header h1 { margin: 0; font-size: 14px; font-weight: 600; letter-spacing: 0.2px; }
+      header .rule { flex: 1; }
+      #status { color: var(--dim); font-size: 12px; }
+      #status.warn { color: var(--high); }
+      #status.error { color: var(--critical); }
+
+      #viewer { grid-area: viewer; position: relative; }
+
+      #panel {
+        grid-area: panel;
+        border-left: 1px solid var(--line);
+        background: var(--panel);
+        overflow-y: auto;
+        overscroll-behavior: contain;
+      }
+      #panel[aria-busy="true"] { opacity: 0.55; pointer-events: none; }
+
+      section { padding: 12px 14px; border-bottom: 1px solid var(--line); }
+      section:last-child { border-bottom: none; }
+      h2 {
+        margin: 0 0 10px;
+        font-size: 11px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.6px;
+        color: var(--dim);
+      }
+      h2 .count {
+        display: inline-block;
+        margin-left: 6px;
+        padding: 0 5px;
+        border-radius: 8px;
+        background: var(--line);
+        color: var(--ink);
+        letter-spacing: 0;
+      }
+
+      label { display: block; margin-bottom: 8px; color: var(--dim); font-size: 11px; }
+      input, select, textarea, button {
+        font: inherit;
+        color: var(--ink);
+        width: 100%;
+        margin-top: 3px;
+        padding: 5px 7px;
+        border: 1px solid var(--line);
+        border-radius: 4px;
+        background: #1d2126;
+      }
+      textarea { resize: vertical; min-height: 52px; }
+      input:focus, select:focus, textarea:focus { outline: 1px solid var(--accent); border-color: var(--accent); }
+      .row { display: flex; gap: 8px; }
+      .row > label { flex: 1; }
+
+      /* The two captured facts an issue needs to be navigable later. */
+      .chip {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 6px;
+      }
+      .chip .value {
+        flex: 1;
+        padding: 5px 7px;
+        border: 1px solid var(--line);
+        border-radius: 4px;
+        background: #1d2126;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .chip .value.empty { color: var(--dim); font-style: italic; }
+      .chip button { width: auto; flex: none; margin-top: 0; cursor: pointer; white-space: nowrap; }
+      .chip button:hover { border-color: var(--accent); }
+
+      #draft-shot {
+        display: block;
+        width: 100%;
+        margin: 4px 0 10px;
+        border: 1px solid var(--line);
+        border-radius: 4px;
+      }
+      #draft-shot[hidden] { display: none; }
+
+      #draft-msg { margin: 0 0 10px; color: var(--high); font-size: 12px; }
+      #draft-msg[hidden] { display: none; }
+
+      .actions { display: flex; gap: 8px; margin-top: 4px; }
+      .actions button { cursor: pointer; }
+      #btn-submit { border-color: var(--accent); background: var(--accent); color: #fff; font-weight: 600; }
+      #btn-submit:disabled { opacity: 0.45; cursor: default; }
+
+      /* Issue list — one row per issue, clicking one flies back to its viewpoint. */
+      #issue-list { margin: 0; padding: 0; list-style: none; }
+      #issue-list li {
+        display: flex;
+        gap: 8px;
+        padding: 7px 6px;
+        border-radius: 4px;
+        cursor: pointer;
+      }
+      #issue-list li:hover { background: #1d2126; }
+      #issue-list .dot {
+        flex: none;
+        width: 8px;
+        height: 8px;
+        margin-top: 5px;
+        border-radius: 50%;
+        background: var(--medium);
+      }
+      #issue-list .dot.low { background: var(--low); }
+      #issue-list .dot.medium { background: var(--medium); }
+      #issue-list .dot.high { background: var(--high); }
+      #issue-list .dot.critical { background: var(--critical); }
+      #issue-list .body { min-width: 0; }
+      #issue-list .title { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      #issue-list .meta { display: block; color: var(--dim); font-size: 11px; }
+      #issue-empty { margin: 0; color: var(--dim); font-style: italic; }
+      #issue-empty[hidden] { display: none; }
     </style>
   </head>
   <body>
+    <header>
+      <h1>BIM Design Review</h1>
+      <span class="rule"></span>
+      <span id="status"></span>
+    </header>
+
     <div id="viewer"></div>
-    <select id="designs" hidden aria-label="Design"></select>
+
+    <aside id="panel">
+      <section>
+        <label for="designs">Design<select id="designs"></select></label>
+      </section>
+
+      <section>
+        <h2>Issues <span class="count" id="issue-count">0</span></h2>
+        <ul id="issue-list"></ul>
+        <p id="issue-empty">No issues raised on this design yet.</p>
+      </section>
+
+      <section>
+        <h2>New issue</h2>
+
+        <label for="f-title">Title<input id="f-title" type="text" placeholder="Short summary" /></label>
+        <label for="f-description">Description<textarea id="f-description" placeholder="What is wrong, and what should it be?"></textarea></label>
+
+        <div class="row">
+          <label for="f-type">Type<select id="f-type"></select></label>
+          <label for="f-severity">Severity<select id="f-severity"></select></label>
+        </div>
+        <div class="row">
+          <label for="f-assignee">Assign to<select id="f-assignee"></select></label>
+          <label for="f-due">Due<input id="f-due" type="date" /></label>
+        </div>
+
+        <label>Element
+          <span class="chip">
+            <span class="value empty" id="chip-element">Nothing captured</span>
+            <button type="button" id="btn-use-selection">Use selection</button>
+          </span>
+        </label>
+        <label>Viewpoint
+          <span class="chip">
+            <span class="value empty" id="chip-camera">Nothing captured</span>
+            <button type="button" id="btn-capture-view">Capture view</button>
+          </span>
+        </label>
+
+        <img id="draft-shot" alt="Attached screenshot" hidden />
+        <p id="draft-msg" hidden></p>
+
+        <div class="actions">
+          <button type="button" id="btn-submit">Submit issue</button>
+          <button type="button" id="btn-clear">Clear</button>
+        </div>
+      </section>
+    </aside>
+
     <script type="module" src="./main.ts"></script>
   </body>
 </html>

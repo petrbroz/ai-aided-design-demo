@@ -1,25 +1,24 @@
-/**
- * The tool surface, in the order an agent is most likely to need it: look, find,
- * inspect, then change what is on screen.
- */
+// In the order an agent needs it: look, inspect, change, then read and write issues.
 
 import type { ToolSpec } from "../webmcp.js";
 import { getViewStateTool } from "./get-view-state.js";
-import { browseHierarchyTool } from "./browse-hierarchy.js";
-import { searchDesignTool } from "./search-design.js";
 import { getPropertiesTool } from "./get-properties.js";
 import { measureElementsTool } from "./measure-elements.js";
 import { setViewStateTool } from "./set-view-state.js";
-import { colorElementsTool } from "./color-elements.js";
 import { captureViewportTool } from "./capture-viewport.js";
+import { listIssuesTool } from "./list-issues.js";
+import { showIssueTool } from "./show-issue.js";
+import { draftIssueTool } from "./draft-issue.js";
+import { submitIssueTool } from "./submit-issue.js";
 
 export const TOOLS: ToolSpec[] = [
   getViewStateTool,
-  browseHierarchyTool,
-  searchDesignTool,
   getPropertiesTool,
   measureElementsTool,
   setViewStateTool,
-  colorElementsTool,
   captureViewportTool,
+  listIssuesTool,
+  showIssueTool,
+  draftIssueTool,
+  submitIssueTool,
 ];

@@ -1,9 +1,3 @@
-/**
- * Pure helpers with no knowledge of the viewer or of WebMCP: list capping, number
- * coercion, grouping, colour parsing, and the one-line JSON fetch used against our
- * own API.
- */
-
 /** Hard cap on any list a caller may receive. Token budget is a design constraint. */
 export const MAX_ITEMS = 50;
 
@@ -15,11 +9,8 @@ export interface Capped<T> {
 }
 
 /**
- * Truncate a list to `limit` (default MAX_ITEMS), always reporting the true total.
- * `map` runs only over the kept slice, so it is safe for it to be expensive.
- *
- * Every list a tool returns is wrapped in this shape, under a named key, so an agent
- * only ever has to learn one convention.
+ * Truncate to `limit`, always reporting the true total. `map` runs only over the kept
+ * slice, so it is safe for it to be expensive. Every list a tool returns uses this shape.
  */
 export function cap<T, R = T>(items: T[], map?: (item: T) => R, limit = MAX_ITEMS): Capped<R> {
   const kept = items.slice(0, limit);
@@ -31,12 +22,8 @@ export function cap<T, R = T>(items: T[], map?: (item: T) => R, limit = MAX_ITEM
   };
 }
 
-/**
- * A number, or null. Deliberately strict: the *whole* string has to be a number
- * (optionally followed by a unit suffix), so compound formats like Revit's
- * `8' - 6"` are rejected rather than silently truncated to their first run of
- * digits and quietly folded into a sum.
- */
+// Deliberately strict: the *whole* string must be a number with an optional unit suffix,
+// so Revit's `8' - 6"` is rejected rather than truncated to `8` and folded into a sum.
 const NUMERIC = /^(-?\d+(?:\.\d+)?(?:[eE][-+]?\d+)?)[a-zA-Z°²³^/.\s]*$/;
 
 export function toNumber(value: unknown): number | null {
@@ -61,14 +48,7 @@ export function clamp(n: number, min: number, max: number): number {
   return Math.max(min, Math.min(n, max));
 }
 
-export function hexToRgb01(hex: string): [number, number, number] {
-  const m = /^#?([0-9a-f]{6})$/i.exec(hex.trim());
-  if (!m) throw new Error(`Invalid color "${hex}" — expected #RRGGBB.`);
-  const int = parseInt(m[1], 16);
-  return [((int >> 16) & 255) / 255, ((int >> 8) & 255) / 255, (int & 255) / 255];
-}
-
-/** Bucket items by a string key, largest bucket first. The one grouping primitive. */
+/** Bucket by a string key, largest bucket first. */
 export function groupBy<T>(items: T[], key: (item: T) => string): Array<[string, T[]]> {
   const buckets = new Map<string, T[]>();
   for (const item of items) {

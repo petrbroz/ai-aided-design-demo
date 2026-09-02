@@ -1,28 +1,11 @@
-/**
- * Everything that knows about the APS Viewer: bootstrapping it, loading a model, and
- * the small set of primitives the tools are built from (object-tree walks, property
- * reads, bounding boxes, theming). Nothing here knows that WebMCP exists.
- *
- * The demo bucket holds pre-uploaded, pre-translated SVF2 designs, so there is no
- * manifest polling and no translation UI — the viewer is initialized once for SVF2
- * and models load straight away.
- *
- * Written against Viewer SDK v7.126, which the page pins explicitly. Two v7.12x
- * changes shape the code below: `Model#getInstanceTree` is deprecated in favour of
- * `Model#getObjectTree` (7.122), and `Autodesk.Viewing.Math` — not the `THREE`
- * global — is now where the SDK's vector and box types live (7.120/7.122). `THREE`
- * still resolves to the very same classes, but only as a compatibility shim.
- */
+// Viewer SDK v7.126, pinned by the page. Two v7.12x changes shape the code below:
+// `getObjectTree` replaces the deprecated `getInstanceTree` (7.122), and the SDK's
+// vector/box types live on `Autodesk.Viewing.Math` rather than the `THREE` global
+// (7.120/7.122), where `THREE` is now only a compatibility shim.
 
-import { cap, hexToRgb01, json, round } from "./utils.js";
+import { cap, json, round } from "./utils.js";
 
 export type Axis = "x" | "y" | "z";
-
-export interface LegendEntry {
-  label: string;
-  color: string;
-  count: number;
-}
 
 export interface BulkProperty {
   displayName?: string;
@@ -41,8 +24,6 @@ export interface BulkResult {
 
 let viewer: any = null;
 let modelName = "(none)";
-let themingActive = false;
-let currentLegend: LegendEntry[] | null = null;
 
 /** The viewer, or a throw the tool layer turns into `{ error }`. */
 export function requireViewer(): any {
@@ -52,14 +33,6 @@ export function requireViewer(): any {
 
 export function getModelName(): string {
   return modelName;
-}
-
-export function isThemingActive(): boolean {
-  return themingActive;
-}
-
-export function getLegend(): LegendEntry[] | null {
-  return currentLegend;
 }
 
 /* ------------------------------------------------------------------- lifecycle */
@@ -80,8 +53,7 @@ export async function initViewer(host: HTMLElement): Promise<void> {
   });
 
   viewer = new Autodesk.Viewing.GuiViewer3D(host, {
-    // DocumentBrowser adds its own toolbar button for switching between the
-    // models/views the loaded Document exposes (e.g. 2D sheets, 3D views).
+    // NavTools puts first-person walkthrough in the viewer's own camera menu.
     extensions: ["Autodesk.DefaultTools.NavTools", "Autodesk.DocumentBrowser"],
   });
   if (viewer.start() !== 0) throw new Error("Failed to start the APS Viewer.");
@@ -117,15 +89,11 @@ export async function loadModel(urn: string, name: string): Promise<void> {
     viewerRef.removeEventListener(Autodesk.Viewing.GEOMETRY_LOADED_EVENT, onGeometryLoaded!);
   }
 
-  // Geometry on screen does not imply a loaded object tree, and nearly every tool
-  // needs one. getObjectTreeAsync (7.124) is the awaitable form of the same read;
-  // a model that genuinely has no tree is still a usable model, so failure to
-  // produce one is not failure to load.
+  // Geometry on screen does not imply a loaded object tree, and nearly every tool needs
+  // one — but a model without a tree is still usable, so failing to get one is not fatal.
   await viewerRef.model.getObjectTreeAsync().catch(() => undefined);
 
   modelName = name;
-  themingActive = false;
-  currentLegend = null;
 }
 
 /* ------------------------------------------------------------------ model reads */
@@ -158,12 +126,9 @@ export function allLeafDbIds(): number[] {
 }
 
 /**
- * dbIds to operate on: explicit → current selection → whole model.
- *
- * An explicitly empty array is *not* the same as an omitted one. The common agent
- * flow is search-design → no hits → pass the empty result straight on; falling back
- * to the whole model there would answer a question about nothing with statistics
- * about everything.
+ * dbIds to operate on: explicit → current selection → whole model. An explicitly empty
+ * array is *not* an omitted one — falling back to the whole model there would answer a
+ * question about nothing with statistics about everything.
  */
 export function resolveDbIds(dbIds?: number[]): { dbIds: number[]; source: string } {
   if (dbIds) {
@@ -173,6 +138,11 @@ export function resolveDbIds(dbIds?: number[]): { dbIds: number[]; source: strin
   const selection = requireViewer().getSelection();
   if (selection.length > 0) return { dbIds: selection, source: "selection" };
   return { dbIds: allLeafDbIds(), source: "whole-model" };
+}
+
+/** The one selection reader. */
+export function getSelection(): number[] {
+  return requireViewer().getSelection() ?? [];
 }
 
 /** The one property-reading primitive in the app. */
@@ -220,8 +190,6 @@ export function worldBox(dbId: number): any {
   const frags = model.getFragmentList();
   const box = new Autodesk.Viewing.Math.Box3();
   if (!tree || !frags) return box;
-  // `enumNodeFragments` still works as an alias, but instances are what the public
-  // ObjectTree API calls them.
   tree.enumNodeInstances(
     dbId,
     (fragId: number) => {
@@ -232,70 +200,6 @@ export function worldBox(dbId: number): any {
     true
   );
   return box;
-}
-
-/* ------------------------------------------------------------------- hierarchy */
-
-export interface HierarchyNode {
-  dbId: number;
-  name: string;
-  childCount: number;
-  isLeaf: boolean;
-}
-
-function objectTree(): any {
-  const tree = requireViewer().model.getObjectTree();
-  if (!tree) throw new Error("This model has no logical hierarchy (no object tree).");
-  return tree;
-}
-
-function describeNode(tree: any, dbId: number): HierarchyNode {
-  let childCount = 0;
-  tree.enumNodeChildren(dbId, () => {
-    childCount++;
-  });
-  return { dbId, name: tree.getNodeName(dbId) ?? `#${dbId}`, childCount, isLeaf: childCount === 0 };
-}
-
-/** The top of the tree — the implicit starting point when no dbId is given. */
-export function rootDbId(): number {
-  return objectTree().getRootId();
-}
-
-/** Root-to-parent breadcrumb (excludes `dbId` itself), for orientation while browsing. */
-function ancestryOf(tree: any, dbId: number): HierarchyNode[] {
-  const chain: HierarchyNode[] = [];
-  const seen = new Set<number>([dbId]);
-
-  let current = tree.getNodeParentId(dbId);
-  while (current && !seen.has(current)) {
-    seen.add(current);
-    chain.unshift(describeNode(tree, current));
-    current = tree.getNodeParentId(current);
-  }
-  return chain;
-}
-
-/**
- * A node, its breadcrumb back to the root, and its immediate children — one step of
- * a browse. The parent is just the last ancestor, so it is not returned twice.
- *
- * `maxChildren` is applied *before* describeNode runs, because describeNode
- * enumerates each child's own children to count them; capping afterwards would walk
- * the entire grandchild layer only to discard it.
- */
-export function hierarchyStep(dbId: number, maxChildren: number) {
-  const tree = objectTree();
-  const childIds: number[] = [];
-  tree.enumNodeChildren(dbId, (child: number) => {
-    childIds.push(child);
-  });
-
-  return {
-    node: describeNode(tree, dbId),
-    ancestors: ancestryOf(tree, dbId),
-    children: cap(childIds, (id) => describeNode(tree, id), maxChildren),
-  };
 }
 
 /* ---------------------------------------------------------------------- camera */
@@ -311,8 +215,7 @@ function vec3(v: [number, number, number]): any {
   return new Autodesk.Viewing.Math.Vector3(v[0], v[1], v[2]);
 }
 
-/** The single camera reader — shared by get-view-state and set-view-state, so a view
- * the agent reads back is expressed in exactly the fields it can write. */
+/** The one camera reader, so a view the agent reads back is in the fields it can write. */
 export function readCamera(): CameraState {
   const nav = requireViewer().navigation;
   const camera = nav.getCamera();
@@ -321,10 +224,7 @@ export function readCamera(): CameraState {
   return { position: tuple(camera.position), target: tuple(target), up: tuple(camera.up), fov: round(camera.fov, 2) };
 }
 
-/**
- * Jumps the camera to an exact position/orientation — no path animation, unlike
- * `fitToView`. `up` and `fov` default to whatever the camera already has.
- */
+/** An exact jump, no path animation. `up` and `fov` default to the camera's current. */
 export function setCameraView(
   position: [number, number, number],
   target: [number, number, number],
@@ -340,13 +240,22 @@ export function setCameraView(
   return readCamera();
 }
 
+/**
+ * Deliberately no `fitToView`: the stored camera *is* the framing, and re-framing on the
+ * element would throw away the eye position that made the issue legible — inside a room,
+ * at head height, looking at one column.
+ */
+export function selectAndFocus(camera: CameraState, dbIds: number[]): CameraState {
+  const viewerRef = requireViewer();
+  const applied = setCameraView(camera.position, camera.target, camera.up, camera.fov);
+  if (dbIds.length > 0) viewerRef.select(dbIds);
+  else viewerRef.clearSelection();
+  return applied;
+}
+
 /* ------------------------------------------------------------------ view state */
 
-/**
- * Everything the agent can observe about the current view, and — bar the selection —
- * everything set-view-state can write. Lives here rather than in the tool so the
- * reader and the writer cannot drift apart: set-view-state returns this too.
- */
+/** Lives here, not in the tool, so the reader and set-view-state cannot drift apart. */
 export function readViewState() {
   const viewerRef = requireViewer();
   return {
@@ -356,45 +265,6 @@ export function readViewState() {
     isolated: cap<number>(viewerRef.getIsolatedNodes() ?? []),
     hidden: cap<number>(viewerRef.getHiddenNodes() ?? []),
     cutPlanes: readCutPlanes(),
-    themingActive: isThemingActive(),
-    legend: getLegend(),
     camera: readCamera(),
   };
-}
-
-/* --------------------------------------------------------------------- theming */
-
-/**
- * Repaint from a clean slate so the legend always matches what is on screen.
- *
- * Every colour is parsed before anything is painted: parsing mid-paint would let a
- * bad colour in the third group throw after two are already on screen, leaving the
- * viewport themed while `themingActive`/`currentLegend` still say it is not.
- */
-export function applyTheming(
-  groups: Array<{ label: string; color: string; dbIds: number[] }>
-): LegendEntry[] {
-  const viewerRef = requireViewer();
-  const parsed = groups.map(({ label, color, dbIds }) => {
-    const [r, g, b] = hexToRgb01(color);
-    return { label, color, dbIds, vec: new Autodesk.Viewing.Math.Vector4(r, g, b, 1) };
-  });
-
-  viewerRef.model.clearThemingColors();
-  for (const { dbIds, vec } of parsed) {
-    for (const dbId of dbIds) viewerRef.model.setThemingColor(dbId, vec, true);
-  }
-
-  themingActive = true;
-  currentLegend = parsed.map(({ label, color, dbIds }) => ({ label, color, count: dbIds.length }));
-  viewerRef.impl.invalidate(true, true, true);
-  return currentLegend;
-}
-
-export function clearTheming(): void {
-  const viewerRef = requireViewer();
-  viewerRef.model.clearThemingColors();
-  themingActive = false;
-  currentLegend = null;
-  viewerRef.impl.invalidate(true, true, true);
 }

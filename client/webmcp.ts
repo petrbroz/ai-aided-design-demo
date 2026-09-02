@@ -1,19 +1,6 @@
-/**
- * The WebMCP layer and nothing else: what a tool looks like, how a tool's arguments
- * are validated, how its result is wrapped in the text envelope WebMCP understands
- * today, and the registration lifecycle. It knows nothing about the viewer.
- *
- * The tool surface is a function of what is on screen: registration is scoped to an
- * AbortController that is aborted before a different model loads.
- */
-
 export type Json = Record<string, unknown>;
 
-/**
- * One agent-facing capability. `run` receives arguments already checked against
- * `inputSchema`, and returns plain values or throws; the envelope, the argument
- * checking, the logging and the error handling are added once, here.
- */
+/** `run` receives arguments already checked against `inputSchema`, and returns or throws. */
 export interface ToolSpec {
   name: string;
   description: string;
@@ -39,13 +26,9 @@ export const vec3 = (description: string) => ({
 
 /* ------------------------------------------------------------ input validation */
 
-/**
- * A validator for the subset of JSON Schema these tools actually use. The host is
- * not required to enforce `inputSchema`, and the arguments are model-generated, so
- * an unchecked `position: [1, 2]` would otherwise reach Math.Vector3 and leave the
- * user with a NaN camera to undo by hand. Failing here costs the agent one retry
- * with a message that says exactly which field was wrong.
- */
+// The host is not required to enforce `inputSchema` and the arguments are
+// model-generated, so an unchecked `position: [1, 2]` would reach Math.Vector3 and leave
+// the user with a NaN camera to undo by hand. Failing here costs the agent one retry.
 function fail(path: string, message: string): never {
   throw new Error(`${path || "arguments"}: ${message}`);
 }
@@ -111,9 +94,8 @@ export function isWebMcpAvailable(): boolean {
 }
 
 /**
- * Always text, never throw. Failures come back as `{ error }` *and* `isError: true`
- * — without the flag a failed call reads to the agent as a successful one whose
- * payload happens to contain the word "error".
+ * Always text, never throw. Failures carry `{ error }` *and* `isError: true` — without
+ * the flag a failure reads as a success whose payload happens to contain "error".
  */
 function descriptor({ run, ...spec }: ToolSpec): WebMcpToolDescriptor {
   const text = (result: unknown, isError = false): WebMcpToolResult => ({
@@ -141,11 +123,7 @@ function descriptor({ run, ...spec }: ToolSpec): WebMcpToolDescriptor {
 
 let controller: AbortController | null = null;
 
-/**
- * Register a tool surface, holding the AbortController so it can be torn down
- * before another model loads. Returns the registered names, or `[]` when there is
- * no model context — in which case the app is simply manual.
- */
+/** Returns the registered names, or `[]` with no model context — the app is then manual. */
 export async function registerTools(tools: ToolSpec[]): Promise<string[]> {
   const mc = modelContext();
   if (!mc) return [];

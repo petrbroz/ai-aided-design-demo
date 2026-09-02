@@ -15,8 +15,8 @@ async function captureViewport(width: number, height: number) {
 
   viewer.impl.invalidate(true, true, true);
 
-  // getScreenShot has no failure callback: if the render never completes the promise
-  // never settles and the agent's tool call hangs forever. Bound it.
+  // getScreenShot has no failure callback, so an incomplete render would hang the
+  // agent's tool call forever. Bound it.
   const dataUrl = await withTimeout(
     new Promise<string>((resolve) => viewer.getScreenShot(w, h, resolve)),
     RENDER_TIMEOUT_MS,
@@ -40,7 +40,8 @@ export const captureViewportTool: ToolSpec = {
   description:
     "Render the current viewport to a PNG and return its URL. WebMCP cannot return " +
     "images yet, so you must FETCH that URL to actually see the screenshot. Use it to " +
-    "verify a camera move, an isolation, a section or a colour scheme after applying it.",
+    "verify a camera move, an isolation or a section after applying it, or to attach " +
+    "visual evidence to an issue — pass the url to draft-issue as `screenshotUrl`.",
   inputSchema: {
     type: "object",
     properties: {

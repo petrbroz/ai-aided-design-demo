@@ -9,10 +9,7 @@ type VisibilityMode = "isolate" | "show" | "hide" | "reset";
 const MODES: VisibilityMode[] = ["isolate", "show", "hide", "reset"];
 const AXES: Axis[] = ["x", "y", "z"];
 
-/**
- * @param frame false when the call also sets an explicit camera, which would
- * otherwise be overwritten by the fit-to-view animation started here.
- */
+/** @param frame false when an explicit camera would otherwise be overwritten here. */
 function applyVisibility(args: { mode: VisibilityMode; dbIds?: number[] }, frame: boolean) {
   const viewer = requireViewer();
   const { mode } = args;
@@ -36,8 +33,8 @@ function applyVisibility(args: { mode: VisibilityMode; dbIds?: number[] }, frame
       break;
   }
 
-  // Animated transition, not an instant jump — the human sees the agent's focus move.
-  // Never frame what was just hidden: that would fly the camera at empty space.
+  // Animated, so the human sees the agent's focus move. Never frame what was just
+  // hidden: that would fly the camera at empty space.
   const framed = frame && mode !== "hide";
   if (framed) {
     if (mode === "reset") viewer.fitToView();
@@ -58,9 +55,8 @@ function applySection(args: { axis?: unknown; offset?: unknown; flip?: boolean; 
     return { cleared: true };
   }
 
-  // `axis` and `offset` cannot be declared `required` while `clear` shares the
-  // sub-schema, so they are checked here. Without this, a bare `{}` reaches the maths
-  // as undefined and installs a live `Vector4(0, 0, 0, NaN)` cut plane.
+  // Cannot be schema-`required` while `clear` shares the sub-schema, so check here: a
+  // bare `{}` would otherwise install a live `Vector4(0, 0, 0, NaN)` cut plane.
   const { axis, offset } = args;
   if (!AXES.includes(axis as Axis)) {
     throw new Error("`section.axis` must be one of x, y, z (or pass `section.clear: true`).");
@@ -83,11 +79,8 @@ function applySection(args: { axis?: unknown; offset?: unknown; flip?: boolean; 
 }
 
 /**
- * The one writer for everything `get-view-state` reads. Each concern is an
- * independent optional argument, applied in a fixed order — visibility, then
- * section, then camera — so a call that both isolates objects *and* names a camera
- * gets the exact camera it asked for rather than the fit-to-view that isolating
- * would otherwise trigger.
+ * Applied in a fixed order — visibility, section, camera — so a call that both isolates
+ * objects *and* names a camera gets the camera it asked for, not the fit-to-view.
  */
 function setViewState(args: any) {
   const { visibility, section, camera } = args;
@@ -118,7 +111,8 @@ export const setViewStateTool: ToolSpec = {
     "so no world coordinates are needed; `section.clear` removes all cut planes. " +
     "`camera` jumps to an exact eye position and look-at target with no path " +
     "animation — use it for a precise, reproducible shot, and `visibility` alone " +
-    "when you just want to 'look at' some objects. Passing `camera` suppresses the " +
+    "when you just want to 'look at' some objects; `camera` is also how you return " +
+    "to a viewpoint an issue was raised from. Passing `camera` suppresses the " +
     "framing animation, so an explicit shot is never overwritten. Returns the full " +
     "view state afterwards, in the same shape get-view-state reports.",
   inputSchema: {

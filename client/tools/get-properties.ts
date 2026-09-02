@@ -34,9 +34,8 @@ async function getProperties(input: GetPropertiesInput) {
   const results = await bulkProperties(page.items, requested);
   const byDbId = new Map(results.map((r) => [r.dbId, r]));
 
-  // Built from the requested ids, not from the results, so an object the property
-  // database returned nothing for still shows up (with no properties) instead of
-  // silently shortening the list and reading as truncation.
+  // Built from the requested ids, so an object the property database returned nothing
+  // for still shows up rather than silently shortening the list.
   const items = page.items.map((dbId) => {
     const result = byDbId.get(dbId);
     return {
@@ -50,8 +49,7 @@ async function getProperties(input: GetPropertiesInput) {
     };
   });
 
-  // propFilter is matched case-sensitively by the property database, so a name that
-  // is merely miscased comes back as silence. Say which names found nothing.
+  // propFilter is case-sensitive, so a miscased name comes back as silence. Say so.
   const seen = new Set(items.flatMap((i) => i.properties.map((p) => p.name.toLowerCase())));
   const unmatchedProperties = requested.filter((name) => !seen.has(name.trim().toLowerCase()));
 
@@ -86,8 +84,8 @@ async function aggregateProperties(
     objectCount: dbIds.length,
     withProperty: entries.length,
     missingProperty: dbIds.length - entries.length,
-    // Every distinct unit seen, not the most common one: a sum over mixed mm and ft
-    // rows is meaningless, and labelling it with whichever unit won a vote hides that.
+    // Every distinct unit, not the most common: a sum over mixed mm and ft is
+    // meaningless, and labelling it with whichever unit won a vote hides that.
     units: distinct(unitStrings),
   };
 

@@ -1,42 +1,35 @@
-/**
- * The entrypoint: fetch the design listing, bring up the viewer, and keep the WebMCP
- * tool surface in sync with whatever model is on screen.
- *
- * The page is the viewer and nothing else. The only DOM outside it is the design
- * picker in the top-left corner; any future UI belongs in the viewer's own
- * extension/toolbar surface. Nothing is ever reported on screen — failures go to
- * `console.error` only.
- */
-
-import { initViewer, loadModel } from "./viewer.js";
+import { getSelection, initViewer, loadModel, nodeName, readCamera, selectAndFocus } from "./viewer.js";
 import { isWebMcpAvailable, registerTools, unregisterTools } from "./webmcp.js";
 import { TOOLS } from "./tools/index.js";
+import { initPanel, setBusy, setStatus } from "./panel.js";
+import type { ModelListing } from "./panel.js";
+import * as issues from "./issues.js";
 import { json } from "./utils.js";
-
-interface ModelListing {
-  name: string;
-  urn: string;
-}
 
 const NO_WEBMCP = "WebMCP not available — the app still works manually.";
 
 const viewerHost = document.getElementById("viewer") as HTMLDivElement;
-const designsEl = document.getElementById("designs") as HTMLSelectElement;
 
-/** The picker's only job: swap the loaded design, locked while the swap is in flight. */
+/** Swap the loaded design, locked while the swap is in flight. */
 async function switchDesign(listing: ModelListing): Promise<void> {
-  designsEl.disabled = true;
+  setBusy(true);
+  setStatus(`Loading ${listing.name}…`);
   // The previous model's tool surface must die before the new one loads.
   unregisterTools();
   try {
     await loadModel(listing.urn, listing.name);
-    console.log(`Loaded ${listing.name}`);
+    issues.setUrn(listing.urn);
+    await issues.refreshIssues();
+
     const names = await registerTools(TOOLS);
     console.log(names.length > 0 ? `Registered ${names.length} WebMCP tools` : NO_WEBMCP);
+    setStatus(names.length > 0 ? `${names.length} agent tools ready` : NO_WEBMCP, names.length > 0 ? "info" : "warn");
   } catch (err) {
-    console.error(`Could not load ${listing.name}: ${(err as Error).message}`);
+    const message = (err as Error).message;
+    console.error(`Could not load ${listing.name}: ${message}`);
+    setStatus(`Could not load ${listing.name}: ${message}`, "error");
   } finally {
-    designsEl.disabled = false;
+    setBusy(false);
   }
 }
 
@@ -49,21 +42,20 @@ function pickModelIndex(models: ModelListing[]): number {
   return found === -1 ? 0 : found;
 }
 
-/** Index, not urn, is the option value — the listing order is the only identity we need. */
-function buildDesignPicker(models: ModelListing[], selected: number): void {
-  designsEl.replaceChildren(
-    ...models.map((model, i) => {
-      const option = document.createElement("option");
-      option.value = String(i);
-      option.textContent = model.name;
-      return option;
-    })
-  );
-  designsEl.value = String(selected);
-  designsEl.hidden = false;
-  designsEl.addEventListener("change", () => {
-    void switchDesign(models[Number(designsEl.value)]);
-  });
+/** The manual equivalents of what draft-issue captures automatically. */
+function useSelection(): void {
+  const [dbId] = getSelection();
+  if (dbId === undefined) {
+    setStatus("Select an element in the model first.", "warn");
+    return;
+  }
+  issues.patchDraft({ element: { dbId, name: nodeName(dbId) } });
+  setStatus("");
+}
+
+function captureViewpoint(): void {
+  issues.patchDraft({ camera: readCamera() });
+  setStatus("");
 }
 
 async function main(): Promise<void> {
@@ -78,25 +70,41 @@ async function main(): Promise<void> {
   try {
     models = await json<ModelListing[]>("/api/models");
   } catch (err) {
-    console.error(`Could not list models: ${(err as Error).message}`);
+    const message = (err as Error).message;
+    console.error(`Could not list models: ${message}`);
+    setStatus(`Could not list models: ${message}`, "error");
     return;
   }
   if (models.length === 0) {
-    console.error("No objects in the configured APS bucket. Upload a model and reload.");
+    const message = "No models in the configured APS bucket. Upload a Revit model and reload.";
+    console.error(message);
+    setStatus(message, "error");
     return;
   }
 
   try {
     await initViewer(viewerHost);
   } catch (err) {
-    console.error((err as Error).message);
+    const message = (err as Error).message;
+    console.error(message);
+    setStatus(message, "error");
     return;
   }
 
-  // The picker only appears once there is a live viewer to switch designs in.
   const selected = pickModelIndex(models);
-  buildDesignPicker(models, selected);
-  await switchDesign(models[selected]);
+  initPanel({
+    models,
+    selected,
+    onSwitchModel: (model) => void switchDesign(model),
+    onFocusIssue: (issue) => {
+      if (!issue.camera) return;
+      selectAndFocus(issue.camera, issue.element ? [issue.element.dbId] : []);
+    },
+    onUseSelection: useSelection,
+    onCaptureViewpoint: captureViewpoint,
+  });
+
+  await switchDesign(models[selected]!);
 }
 
 void main();

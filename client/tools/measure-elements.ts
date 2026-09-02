@@ -8,8 +8,6 @@ const AXES: Axis[] = ["x", "y", "z"];
 
 const corner = (v: any) => [round(v.x), round(v.y), round(v.z)];
 
-// getSize/getCenter allocate their own result vector when the optional target is
-// omitted, so nothing here has to name a vector type.
 function boxSummary(box: any) {
   const size = box.getSize();
   return {
@@ -48,8 +46,7 @@ function measureElements(dbIdsInput: number[] | undefined, perObject: boolean) {
     boundingBox: boxSummary(combined),
   };
 
-  // Exactly two objects is the "how far apart are these?" question, so answer it
-  // without making the caller pick a different tool for it.
+  // Two objects is the "how far apart are these?" question — answer it here.
   if (found.length === 2) {
     const [a, b] = found;
     const ca = a.box.getCenter();

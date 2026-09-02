@@ -13,5 +13,5 @@
     "allowImportingTsExtensions": true,
     "types": ["bun"]
   },
-  "include": ["client", "*.ts"]
+  "include": ["client", "server", "shared", "*.ts"]
 }
