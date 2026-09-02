@@ -58,11 +58,12 @@ without `document.modelContext`.
 
 ## The tools
 
-Nine tools, all scoped to the design currently on screen. `dbId` is the APS Viewer object id.
+Ten tools, all scoped to the design currently on screen. `dbId` is the APS Viewer object id.
 
 | Tool | What it does |
 | --- | --- |
 | `get-view-state` | Model name, selection, isolated/hidden sets, active cut planes, camera, unit string. This is the tool that makes deixis work — "what am I looking at", "these two", "how tall is *this*". |
+| `browse-hierarchy` | The design's logical hierarchy, one level at a time: model → category (`Doors`) → family (`M_Single flush`) → type (`915x2135mm`) → instance, each node with its `role` and `childCount`. Pass a selected dbId and the `ancestors` chain says which category, family and type it belongs to — the type's `childCount` is how many instances of it exist, so "are there any other doors of this type?" is one call. This is how a name becomes dbIds without guessing. |
 | `get-properties` | Detail mode (per-object property maps) or aggregate mode (`sum`/`avg`/`min`/`max`/`group-by`) over any set, up to the whole model. Aggregations return statistics, never rows. |
 | `measure-elements` | Bounding-box dimensions for one object, centre distance + per-axis gap for two. Every result is flagged `"approximate": true`. |
 | `set-view-state` | The one writer for everything `get-view-state` reads — `visibility`, `section`, and `camera`, singly or together. Visibility is `isolate`/`show`/`hide`/`reset` with an animated fit-to-view so the human sees the agent's focus move; section is one cut plane on a world axis, `offset` normalized 0..1 across the bounding box ("halfway up" needs no world coordinates); camera is an exact eye/target jump. Applied in that order, and passing `camera` suppresses the framing animation so an explicit shot is never overwritten. |
@@ -113,7 +114,7 @@ await mc.registerTool(descriptor, { signal: controller.signal });
 ```
 
 Before a different model loads, `main.ts` calls `unregisterTools()`, which aborts that
-controller and drops all nine tools; they are re-registered when the new model's geometry
+controller and drops all ten tools; they are re-registered when the new model's geometry
 arrives. The agent therefore never sees a tool it cannot meaningfully call. `get-properties`
 against a model that is half-unloaded is not a degraded answer — it is a wrong answer, and a
 wrong answer the agent will confidently repeat. Tying registration to viewer state makes the
@@ -131,6 +132,10 @@ eventually return a list that costs more than the answer is worth.
 - Every list is capped at `MAX_ITEMS = 50` and always carries the true total plus a
   `truncated` flag, so the agent knows it is looking at a sample and can say so. That
   includes `list-issues`.
+- `browse-hierarchy` is capped twice, because levels multiply: 50 children per level *and*
+  200 nodes across the whole reply. Three levels at 50 each would be 125,000 nodes. The
+  cure is to expand one branch, not to ask for more depth — which is also how a human
+  reads a model tree.
 - Aggregations return summary statistics only. `group-by` returns `{ value, count }` per
   bucket and the number of objects *missing* the property — never dbId lists. That last
   number is the point: "how many doors have no fire rating set?" is a question no

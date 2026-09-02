@@ -108,6 +108,61 @@ export function nodeName(dbId: number): string {
 
 export const toNamed = (dbId: number) => ({ dbId, name: nodeName(dbId) });
 
+/**
+ * The logical hierarchy, or a throw. Geometry can load without a tree, so the tools that
+ * read structure rather than shape have to say so instead of reporting an empty model.
+ */
+export function requireTree(): any {
+  const tree = requireViewer().model.getObjectTree();
+  if (!tree) throw new Error("This model has no object tree, so it has no logical hierarchy.");
+  return tree;
+}
+
+export function rootDbId(): number {
+  return requireTree().getRootId();
+}
+
+// enumNodeChildren stops the moment its callback returns something truthy, so every
+// callback below has a braced body and returns undefined. `(c) => children.push(c)` would
+// silently visit exactly one child.
+
+export function childDbIds(dbId: number): number[] {
+  const children: number[] = [];
+  requireTree().enumNodeChildren(dbId, (child: number) => {
+    children.push(child);
+  });
+  return children;
+}
+
+/** Child count without materializing the ids — the fan-out of a node is often the answer. */
+export function childCount(dbId: number): number {
+  let count = 0;
+  requireTree().enumNodeChildren(dbId, () => {
+    count++;
+  });
+  return count;
+}
+
+/**
+ * Root → `dbId`, inclusive. A path that does not start at the root means `dbId` is not in
+ * this model's tree, which the caller should treat as a bad id rather than an empty node.
+ */
+export function ancestorPath(dbId: number): number[] {
+  const tree = requireTree();
+  const root = tree.getRootId();
+  const path: number[] = [];
+  let current = dbId;
+  // Depth-bounded rather than `while (true)`: a malformed tree must not hang the browser.
+  for (let i = 0; i < 64; i++) {
+    path.unshift(current);
+    if (current === root) break;
+    const parent = tree.getNodeParentId(current);
+    if (typeof parent !== "number" || parent === current) break;
+    current = parent;
+  }
+  return path;
+}
+
 /** Every leaf dbId in the object tree — the implicit "whole model" set. */
 export function allLeafDbIds(): number[] {
   const tree = requireViewer().model.getObjectTree();

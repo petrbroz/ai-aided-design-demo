@@ -2,6 +2,7 @@
 
 import type { ToolSpec } from "../webmcp.js";
 import { getViewStateTool } from "./get-view-state.js";
+import { browseHierarchyTool } from "./browse-hierarchy.js";
 import { getPropertiesTool } from "./get-properties.js";
 import { measureElementsTool } from "./measure-elements.js";
 import { setViewStateTool } from "./set-view-state.js";
@@ -13,6 +14,7 @@ import { submitIssueTool } from "./submit-issue.js";
 
 export const TOOLS: ToolSpec[] = [
   getViewStateTool,
+  browseHierarchyTool,
   getPropertiesTool,
   measureElementsTool,
   setViewStateTool,
